@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { loginWithFastAPI } from '../api/auth';
+import { apiClient } from "../api/client";
 
 export default function Login() {
   const navigate = useNavigate();
@@ -12,24 +13,45 @@ export default function Login() {
   const [errorMessage, setErrorMessage] = useState('');
 
   // The function you asked about!
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault(); // Prevents the page from refreshing
-    setIsLoading(true);
-    setErrorMessage('');
-    
-    // Call our API with the actual typed email and password
-    const result = await loginWithFastAPI(email, password);
-    
-    if (result.success) {
-      // Success! Send them to the dashboard
-      navigate('/home'); 
-    } else {
-      // Show the error on the screen instead of a popup alert
-      setErrorMessage(result.error || 'Failed to login');
-      setIsLoading(false);
-    }
-  };
+ const handleLogin = async (e: React.FormEvent) => {
+  e.preventDefault();
 
+  setIsLoading(true);
+  setErrorMessage("");
+
+  const result = await loginWithFastAPI(email, password);
+
+  if (result.success) {
+
+    try {
+
+const response = await apiClient.get("/api/v1/users/me");
+
+console.log("PROFILE:", response.data);
+console.log("ROLE:", response.data.role);
+
+if (response.data.role === "admin") {
+  console.log("Redirecting to admin...");
+  navigate("/admin");
+} else {
+  console.log("Redirecting to home...");
+  navigate("/home");
+}
+
+    } catch (err) {
+
+      navigate("/home");
+
+    }
+
+  } else {
+
+    setErrorMessage(result.error || "Login failed");
+
+  }
+
+  setIsLoading(false);
+};
   return (
     <div className="min-h-screen bg-slate-50 text-syncro-dark flex flex-col p-6 font-sans">
       

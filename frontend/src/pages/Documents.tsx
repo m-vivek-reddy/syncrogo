@@ -1,83 +1,102 @@
-import { useState } from 'react';
-import { apiClient } from '../api/client';
+import { useState } from "react";
+
+import VerificationProgress from "../components/documents/VerificationProgress";
+import DocumentCard from "../components/documents/DocumentCard";
+import UploadDocument from "../components/documents/UploadDocument";
+import UploadHistory from "../components/documents/UploadHistory";
+
+import type { UploadedDocument } from "../components/documents/UploadHistory";
 
 export default function Documents() {
-  const [documentType, setDocumentType] = useState('Driver License');
-  const [file, setFile] = useState<File | null>(null);
-  const [message, setMessage] = useState('');
-  const [uploading, setUploading] = useState(false);
+  const [documents] = useState<UploadedDocument[]>([
+    {
+      id: 1,
+      name: "aadhaar.pdf",
+      type: "Aadhaar Card",
+      uploadedAt: "2 days ago",
+      status: "verified",
+    },
+    {
+      id: 2,
+      name: "license.jpg",
+      type: "Driving License",
+      uploadedAt: "Yesterday",
+      status: "pending",
+    },
+  ]);
 
-  const handleUpload = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!file) return;
+  const verified = documents.filter(
+    (doc) => doc.status === "verified"
+  ).length;
 
-    const formData = new FormData();
-    formData.append('document_type', documentType);
-    formData.append('file', file);
+  const pending = documents.filter(
+    (doc) => doc.status === "pending"
+  ).length;
 
-    setUploading(true);
-    setMessage('');
+  const rejected = documents.filter(
+    (doc) => doc.status === "rejected"
+  ).length;
 
-    try {
-      const res = await apiClient.post('/api/v1/documents/', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      });
-
-      if (res.status === 201) {
-        setMessage('Document uploaded successfully and is pending review.');
-        setFile(null);
-      } else {
-        setMessage('Upload failed. Please try again.');
-      }
-    } catch (err) {
-      setMessage('An error occurred during upload.');
-    } finally {
-      setUploading(false);
-    }
-  };
+  const percentage = Math.round((verified / 3) * 100);
 
   return (
-    <div className="p-6 max-w-md mx-auto bg-slate-50 min-h-screen">
-      <h2 className="text-xl font-bold text-slate-800 mb-2">Identity & Documents</h2>
-      <p className="text-sm text-slate-500 mb-6">Upload required verifications to unlock all features.</p>
+    <div className="min-h-screen bg-slate-50">
+      {/* Header */}
 
-      {message && <p className="text-sm p-3 mb-4 rounded bg-blue-50 text-blue-700">{message}</p>}
+      <div className="bg-white border-b shadow-sm">
+        <div className="max-w-5xl mx-auto px-6 py-8">
+          <h1 className="text-3xl font-bold text-slate-900">
+            Identity & Documents
+          </h1>
 
-      <form onSubmit={handleUpload} className="bg-white p-4 rounded-xl shadow-md space-y-4">
-        <div>
-          <label className="block text-sm font-medium text-slate-700">Document Type</label>
-          <select
-            value={documentType}
-            onChange={(e) => setDocumentType(e.target.value)}
-            className="mt-1 w-full border p-2 rounded-md text-sm border-slate-300"
-          >
-            <option value="Driver License">Driver License</option>
-            <option value="Govt ID Card">Government ID Card</option>
-            <option value="Vehicle Insurance">Vehicle Insurance</option>
-          </select>
+          <p className="text-slate-500 mt-2">
+            Upload your documents to unlock all SyncroGo features.
+          </p>
         </div>
+      </div>
 
-        <div>
-          <label className="block text-sm font-medium text-slate-700">Upload File (PDF/Image)</label>
-          <input
-            type="file"
-            accept="image/*,application/pdf"
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            className="mt-1 w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-slate-900 file:text-white hover:file:bg-slate-800"
-            required
+      <div className="max-w-5xl mx-auto p-6 space-y-6">
+        {/* Progress */}
+
+        <VerificationProgress
+          percentage={percentage}
+          verified={verified}
+          pending={pending}
+          rejected={rejected}
+        />
+
+        {/* Cards */}
+
+        <div className="grid md:grid-cols-3 gap-5">
+          <DocumentCard
+            title="Aadhaar Card"
+            subtitle="Government Identity Proof"
+            status="verified"
+            uploadedAt="2 days ago"
+          />
+
+          <DocumentCard
+            title="Driving License"
+            subtitle="Required to offer rides"
+            status="pending"
+            uploadedAt="Yesterday"
+          />
+
+          <DocumentCard
+            title="Vehicle Insurance"
+            subtitle="Upload insurance copy"
+            status="missing"
           />
         </div>
 
-        <button
-          type="submit"
-          disabled={uploading}
-          className="w-full bg-slate-900 text-white p-2.5 rounded-md text-sm font-medium hover:bg-slate-800 transition disabled:opacity-50"
-        >
-          {uploading ? 'Uploading...' : 'Submit Document'}
-        </button>
-      </form>
+        {/* Upload */}
+
+        <UploadDocument />
+
+        {/* Upload History */}
+
+        <UploadHistory documents={documents} />
+      </div>
     </div>
   );
 }

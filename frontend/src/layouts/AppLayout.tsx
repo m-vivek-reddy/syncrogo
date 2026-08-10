@@ -1,74 +1,238 @@
-import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { useAppStore } from '../store/useAppStore'; // <-- Import the store
+import { Outlet, useNavigate, useLocation } from "react-router-dom";
+import {
+  Home,
+  MessageCircleMore,
+  Package,
+  UserRound,
+} from "lucide-react";
 
+import { useAppStore } from "../store/useAppStore";
 
 export default function AppLayout() {
+
   const navigate = useNavigate();
   const location = useLocation();
-  
-  // Destructure exactly what we need from the global store
-  const { isDriverMode, toggleDriverMode } = useAppStore();
+
+  const {
+    isDriverMode,
+    toggleDriverMode
+  } = useAppStore();
+
 
   return (
-    <div className="min-h-screen bg-slate-50 text-syncro-dark font-sans pb-20">
-      
-      {/* Top Navigation Bar */}
-     <header className="bg-white h-20 px-6 flex justify-between items-center sticky top-0 z-50 border-b shadow-sm">
-<div
-  onClick={() => navigate("/home")}
-  className="cursor-pointer flex flex-col"
->
-  <h1 className="text-3xl font-extrabold tracking-tight">
-    <span className="text-[#111827]">Syncro</span>
-    <span className="text-[#22C55E]">Go</span>
-  </h1>
 
- <p className="text-[8px] text-gray-500 -mt-1">
-  Share Rides.Save More.<span className="text-green-500">Go Together.</span>
-</p>
-</div>
-        {/* The Magic Mode Switcher (Now powered by Zustand!) */}
-        <button
-          onClick={toggleDriverMode}
-          className={`px-4 py-2 rounded-full font-semibold text-sm transition-all flex items-center gap-2 ${
-            isDriverMode 
-              ? 'bg-green-50 text-syncro-green border border-green-200' 
-              : 'bg-blue-50 text-syncro-blue border border-blue-200'
-          }`}
-        >
-          {isDriverMode ? '🚙 Driver' : '🚗 Passenger'} ▼
-        </button>
+    <div className="
+      min-h-screen
+      bg-slate-50
+      text-syncro-dark
+      font-sans
+      pb-20
+      flex
+      flex-col
+    ">
+
+
+      {/* Passenger Header */}
+      <header
+        className="
+          sticky
+          top-0
+          z-50
+          border-b
+          border-slate-200
+          bg-white/95
+          px-4
+          py-3
+          shadow-sm
+          backdrop-blur
+        "
+      >
+
+        <div className="flex items-center justify-between">
+
+
+          {/* Logo */}
+          <div
+            onClick={() => navigate("/home")}
+            className="cursor-pointer"
+          >
+
+            <h1 className="text-xl font-extrabold">
+              Syncro
+              <span className="text-emerald-500">
+                Go
+              </span>
+            </h1>
+
+
+            <p className="text-[11px] text-slate-500">
+              Travel Together. Save Together.
+            </p>
+
+          </div>
+
+
+
+          {/* Passenger / Driver Toggle */}
+          <button
+            onClick={() => {
+              toggleDriverMode();
+              navigate("/home");
+            }}
+
+            className={`
+              rounded-full
+              px-4
+              py-2
+              text-xs
+              font-semibold
+
+              ${
+                isDriverMode
+                ? "bg-emerald-100 text-emerald-700"
+                : "bg-blue-100 text-blue-700"
+              }
+            `}
+          >
+
+            {
+              isDriverMode
+              ? "🚙 Driver"
+              : "🚗 Passenger"
+            }
+
+          </button>
+
+
+        </div>
+
       </header>
 
-      {/* Dynamic Page Content */}
-      <main>
-        {/* We no longer need to pass context down! Any page can just import the store */}
+
+
+      {/* Page Content */}
+      <main className="flex-1 overflow-y-auto">
+
         <Outlet />
+
       </main>
 
-      {/* Bottom Navigation */}
-      <nav className="fixed bottom-0 w-full bg-white border-t border-gray-100 px-6 py-3 flex justify-between items-center z-50">
-        <button onClick={() => navigate('/home')} className={`flex flex-col items-center gap-1 ${location.pathname === '/home' ? 'text-syncro-dark' : 'text-gray-400'}`}>
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>
-          <span className="text-[10px] font-bold">Home</span>
-        </button>
 
-        <button onClick={() => navigate('/trips')} className={`flex flex-col items-center gap-1 ${location.pathname === '/trips' ? 'text-syncro-dark' : 'text-gray-400'}`}>
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724a1 1 0 01-.553-.894V4.224a1 1 0 01.553-.894L9 6l5.447-2.724a1 1 0 01.553.894v13.153a1 1 0 01-.553.894L9 20z" /></svg>
-          <span className="text-[10px] font-medium">Trips</span>
-        </button>
 
-        <button onClick={() => navigate('/messages')} className={`flex flex-col items-center gap-1 ${location.pathname === '/messages' ? 'text-syncro-dark' : 'text-gray-400'}`}>
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
-          <span className="text-[10px] font-medium">Messages</span>
-        </button>
 
-        <button onClick={() => navigate('/profile')} className={`flex flex-col items-center gap-1 ${location.pathname === '/profile' ? 'text-syncro-dark' : 'text-gray-400'}`}>
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
-          <span className="text-[10px] font-medium">Profile</span>
-        </button>
+      {/* Passenger Bottom Navigation */}
+      <nav
+        className="
+          fixed
+          bottom-0
+          w-full
+          border-t
+          border-slate-200
+          bg-white
+          px-4
+          py-3
+          shadow-[0_-8px_24px_rgba(15,23,42,0.06)]
+          z-50
+        "
+      >
+
+        <div className="
+          mx-auto
+          flex
+          max-w-md
+          items-center
+          justify-between
+        ">
+
+
+          <NavButton
+            icon={<Home size={18}/>}
+            label="Home"
+            active={location.pathname === "/home"}
+            onClick={()=>navigate("/home")}
+          />
+
+
+          <NavButton
+            icon={<Package size={18}/>}
+            label="Trips"
+            active={location.pathname === "/trips"}
+            onClick={()=>navigate("/trips")}
+          />
+
+
+          <NavButton
+            icon={<MessageCircleMore size={18}/>}
+            label="Messages"
+            active={location.pathname === "/messages"}
+            onClick={()=>navigate("/messages")}
+          />
+
+
+          <NavButton
+            icon={<UserRound size={18}/>}
+            label="Profile"
+            active={location.pathname === "/profile"}
+            onClick={()=>navigate("/profile")}
+          />
+
+
+        </div>
+
       </nav>
-      
+
+
     </div>
+
   );
+}
+
+
+
+function NavButton({
+  icon,
+  label,
+  active,
+  onClick
+}:{
+  icon:React.ReactNode;
+  label:string;
+  active:boolean;
+  onClick:()=>void;
+}){
+
+
+return (
+
+<button
+onClick={onClick}
+className={`
+flex
+flex-col
+items-center
+gap-1
+rounded-xl
+px-3
+py-2
+
+${
+active
+? "text-slate-900"
+: "text-slate-400"
+}
+
+`}
+>
+
+{icon}
+
+<span className="text-[10px] font-semibold">
+{label}
+</span>
+
+
+</button>
+
+)
+
 }

@@ -24,6 +24,7 @@ export default function Register() {
     if (regResult.success) {
       // 2. If creation is successful, send them to the OTP screen!
       // We pass the email in the state so the OTP page knows who is verifying.
+      localStorage.setItem("verify_email", email);
       navigate('/verify-otp', { state: { email: email } });
     } else {
       setErrorMessage(regResult.error || 'Registration failed');

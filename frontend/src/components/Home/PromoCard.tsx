@@ -1,0 +1,1 @@
+export default function PromoCard() { return <div className="rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 p-5 text-white shadow-lg"><p className="text-xs font-semibold uppercase tracking-wide text-emerald-100">Ride together, save together</p><p className="mt-1 text-lg font-extrabold">Save more with every shared ride.</p></div>; }

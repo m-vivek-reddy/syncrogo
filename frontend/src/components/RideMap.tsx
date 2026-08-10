@@ -61,15 +61,28 @@ function RouteFitter() {
   return null;
 }
 
+function FlyToLocation({ position }: { position: [number, number] }) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (position) {
+      map.flyTo(position, 16, { animate: true, duration: 1.5 });
+    }
+  }, [map, position]);
+
+  return null;
+}
+
 export default function RideMap() {
-  const { route, destinationLocation, setDestinationLocation } = useAppStore(); 
+  const { route, pickupLocation, destinationLocation, setDestinationLocation } = useAppStore(); 
   const defaultLocation: [number, number] = [20.5937, 78.9629]; 
+  const startPosition = destinationLocation ?? pickupLocation ?? defaultLocation;
 
   return (
     <div className="w-full h-64 rounded-3xl overflow-hidden shadow-sm border border-gray-200 relative z-0">
       <MapContainer 
-        center={defaultLocation} 
-        zoom={5} 
+        center={startPosition} 
+        zoom={destinationLocation || pickupLocation ? 13 : 5} 
         scrollWheelZoom={true} /* 🖱️ ENABLED: Mouse wheel and pinch zooming! */
         /* 📱 Mobile Gestures Enabled! */
         touchZoom={true}        // Enables the two-finger pinch to zoom in/out
@@ -84,6 +97,9 @@ export default function RideMap() {
         
         <LocationTracker />
         <RouteFitter /> {/* 🎥 Mount the Camera Operator */}
+
+        {pickupLocation && !route && <FlyToLocation position={pickupLocation} />}
+        {destinationLocation && !route && <FlyToLocation position={destinationLocation} />}
 
         {/* 📍 DRAGGABLE DESTINATION PIN */}
         {destinationLocation && !route && (

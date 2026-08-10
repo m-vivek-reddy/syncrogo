@@ -23,12 +23,16 @@ export const loginWithFastAPI = async (email: string, password: string) => {
 
     useAppStore.getState().login({
       id: String(profile.id),
-      name: profile.name || profile.email,
+      name: profile.full_name || profile.name || profile.email,
       email: profile.email,
       rating: profile.rating ?? 4.9,
+      role: profile.role,
     });
 
-    return { success: true };
+    return {
+      success: true,
+      role: profile.role,
+    };
   } catch (error) {
     console.error('Login Failed:', error);
     return { success: false, error: 'Invalid credentials or server error' };
@@ -82,7 +86,7 @@ export const bookRideWithBackend = async (rideDetails: {
 export const fetchPassengerBookings = async () => {
   try {
     const token = localStorage.getItem('syncrogo_token') || localStorage.getItem('token');
-    const response = await fetch('http://localhost:8000/bookings/my-rides', {
+    const response = await fetch(`${import.meta.env.VITE_API_URL ?? 'http://localhost:8000'}/bookings/my-rides`, {
       headers: {
         Authorization: `Bearer ${token || ''}`,
       },
@@ -99,7 +103,7 @@ export const fetchPassengerBookings = async () => {
 export const cancelBookingWithBackend = async (bookingId: number) => {
   try {
     const token = localStorage.getItem('syncrogo_token') || localStorage.getItem('token');
-    const response = await fetch(`http://localhost:8000/bookings/${bookingId}`, {
+    const response = await fetch(`${import.meta.env.VITE_API_URL ?? 'http://localhost:8000'}/bookings/${bookingId}`, {
       method: 'DELETE',
       headers: {
         Authorization: `Bearer ${token || ''}`,
@@ -116,7 +120,7 @@ export const cancelBookingWithBackend = async (bookingId: number) => {
 export const fetchDriverBookings = async () => {
   try {
     const token = localStorage.getItem('syncrogo_token') || localStorage.getItem('token');
-    const response = await fetch('http://localhost:8000/driver/bookings', {
+    const response = await fetch(`${import.meta.env.VITE_API_URL ?? 'http://localhost:8000'}/driver/bookings`, {
       headers: {
         Authorization: `Bearer ${token || ''}`,
       },
@@ -139,6 +143,7 @@ export const publishOfferWithBackend = async (offerData: {
   dropoff_location: string;
   dropoff_lat: number;
   dropoff_lon: number;
+  departure_time?: string | null;
   price_per_seat: number;
   available_seats: number;
   gender_preference: string;

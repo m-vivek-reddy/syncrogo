@@ -32,12 +32,13 @@ export default function AccountDetails() {
         const response = await apiClient.get('/api/v1/users/me');
         setProfile(response.data);
         if (response.data?.name || response.data?.email) {
-          login({
-            id: String(response.data.id),
-            name: response.data.name || response.data.email,
-            email: response.data.email,
-            rating: response.data.rating ?? user?.rating ?? 0,
-          });
+        login({
+          id: String(response.data.id),
+          name: response.data.name || response.data.email,
+          email: response.data.email,
+          rating: response.data.rating ?? user?.rating ?? 0,
+          role: response.data.role || "customer",
+        });
         }
       } catch (err: any) {
         setError(err.response?.data?.detail || 'Unable to load account details.');
@@ -72,6 +73,7 @@ export default function AccountDetails() {
         name: response.data.name || response.data.email,
         email: response.data.email,
         rating: response.data.rating ?? user?.rating ?? 0,
+        role: response.data.role || "customer",
       });
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to update account details.');

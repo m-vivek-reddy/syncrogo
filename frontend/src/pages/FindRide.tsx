@@ -1,16 +1,10 @@
-import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { searchRidesWithBackend, bookSeatWithBackend, createPaymentOrder, verifyPaymentSignature } from '../api/auth';
 import { useAppStore } from '../store/useAppStore';
 import RideMap from '../components/RideMap';
+import LocationFlow from '../components/LocationFlow';
 import { Phone, MessageSquare, CarFront } from 'lucide-react';
-
-interface Suggestion {
-  place_id: number;
-  display_name: string;
-  lat: string;
-  lon: string;
-}
 
 interface DriverOffer {
   id: number;
@@ -34,79 +28,82 @@ declare global {
 
 export default function FindRide() {
   const navigate = useNavigate();
-  const { currentLocation, setRoute, destinationLocation, setDestinationLocation, user } = useAppStore();
+  const location = useLocation();
+  const {
+    currentLocation,
+    setRoute,
+    pickupLocation,
+    destinationLocation,
+    setPickupLocation,
+    setDestinationLocation,
+    user,
+  } = useAppStore();
   
-  // Passenger's location
-  const startLat = currentLocation ? currentLocation[0] : 17.4400;
-  const startLon = currentLocation ? currentLocation[1] : 78.3489;
-
+  const [pickup, setPickup] = useState('');
   const [destination, setDestination] = useState('');
-  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [searchResults, setSearchResults] = useState<DriverOffer[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const [isPaying, setIsPaying] = useState(false);
 
-  // 🔍 1. AUTOCOMPLETE SEARCH LOGIC
-  useEffect(() => {
-    if (destination.trim().length < 3) {
-      setSuggestions([]);
-      return;
-    }
-    const delayDebounce = setTimeout(async () => {
-      try {
-        const bounds = "78.2,17.2,78.7,17.7"; 
-        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(destination)}&viewbox=${bounds}&bounded=1&limit=5`);
-        const data = await res.json();
-        setSuggestions(data);
-      } catch (err) {
-        console.error("Error fetching suggestions:", err);
-      }
-    }, 400); 
-    return () => clearTimeout(delayDebounce);
-  }, [destination]);
+  const handleLocationConfirmed = (payload: { pickup: { address: string; lat: number | null; lng: number | null }; destination: { address: string; lat: number | null; lng: number | null } }) => {
+    setPickup(payload.pickup.address);
+    setDestination(payload.destination.address);
 
-  // 📍 2. HANDLE SELECTION & DRAW ROUTE
-  const handleSelectSuggestion = async (place: Suggestion) => {
-    setDestination(place.display_name);
-    setSuggestions([]);
-    
-    const destLat = parseFloat(place.lat);
-    const destLon = parseFloat(place.lon);
-    setDestinationLocation([destLat, destLon]);
-
-    try {
-      const start = `${startLon},${startLat}`;
-      const end = `${destLon},${destLat}`;
-      const routeRes = await fetch(`https://router.project-osrm.org/route/v1/driving/${start};${end}?overview=full&geometries=geojson`);
-      const routeData = await routeRes.json();
-      if (routeData.routes && routeData.routes.length > 0) {
-        const route = routeData.routes[0];
-        const coordinates = route.geometry.coordinates.map((c: [number, number]) => [c[1], c[0]]);
-        setRoute(coordinates);
-      }
-    } catch (error) {
-      console.error("Routing failed:", error);
+    if (payload.pickup.lat !== null && payload.pickup.lng !== null) {
+      setPickupLocation([payload.pickup.lat, payload.pickup.lng]);
     }
+
+    if (payload.destination.lat !== null && payload.destination.lng !== null) {
+      setDestinationLocation([payload.destination.lat, payload.destination.lng]);
+    }
+
+    void handleSearch({ preventDefault: () => undefined } as React.FormEvent, payload);
   };
 
-  // 🚀 3. SEARCH THE DATABASE FOR MATCHING OFFERS
-  const handleSearch = async (e: React.FormEvent) => {
+  // � SEARCH THE DATABASE FOR MATCHING OFFERS
+  const handleSearch = async (e: React.FormEvent, confirmedRoute?: { pickup: { address: string; lat: number | null; lng: number | null }; destination: { address: string; lat: number | null; lng: number | null } }) => {
     e.preventDefault();
-    if (!destinationLocation) return alert("Please select a destination from the list.");
+
+    const resolvedPickup = confirmedRoute && confirmedRoute.pickup.lat !== null && confirmedRoute.pickup.lng !== null
+      ? [confirmedRoute.pickup.lat, confirmedRoute.pickup.lng] as [number, number]
+      : pickupLocation || currentLocation || null;
+    const resolvedDestination = confirmedRoute && confirmedRoute.destination.lat !== null && confirmedRoute.destination.lng !== null
+      ? [confirmedRoute.destination.lat, confirmedRoute.destination.lng] as [number, number]
+      : destinationLocation || null;
+    const pickupAddress = confirmedRoute?.pickup.address || pickup;
+    const destinationAddress = confirmedRoute?.destination.address || destination;
+
+    if (!pickupAddress.trim() || !destinationAddress.trim()) {
+      return alert('Please select both pickup and destination locations.');
+    }
+
+    if (!resolvedPickup || !resolvedDestination) {
+      return alert('Please use GPS, pin a location, or select a suggestion for both pickup and destination.');
+    }
     
     setIsSearching(true);
     setHasSearched(true);
     
     const result = await searchRidesWithBackend(
-      startLat, 
-      startLon, 
-      destinationLocation[0], 
-      destinationLocation[1]
+      resolvedPickup[0],
+      resolvedPickup[1],
+      resolvedDestination[0],
+      resolvedDestination[1]
     );
 
     if (result.success) {
-      setSearchResults(result.data);
+      const rides = result.data as DriverOffer[];
+      setSearchResults(rides);
+      navigate('/available-rides', {
+        state: {
+          rides,
+          routeDetails: {
+            pickup: { address: pickupAddress },
+            destination: { address: destinationAddress },
+          },
+        },
+      });
     }
     setIsSearching(false);
   };
@@ -209,6 +206,16 @@ export default function FindRide() {
     });
   };
 
+  useEffect(() => {
+    const selectedOffer = (location.state as { selectedOffer?: DriverOffer } | null)?.selectedOffer;
+    if (!selectedOffer) return;
+
+    // Remove the transient navigation state before opening checkout so a refresh
+    // or return navigation cannot launch the payment flow a second time.
+    navigate('/find-ride', { replace: true });
+    void handleBookSeat(selectedOffer);
+  }, [location.state, navigate]);
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans relative">
       <div className="bg-white px-6 py-6 rounded-b-3xl shadow-sm z-20 relative">
@@ -229,37 +236,23 @@ export default function FindRide() {
 
       <div className="flex-grow p-6 overflow-y-auto z-10 -mt-4 pb-24">
         
-        {/* PASSENGER SEARCH FORM */}
+        {/* PASSENGER LOCATION FLOW */}
+        <div className="mb-6">
+          <LocationFlow onRouteConfirmed={handleLocationConfirmed} />
+        </div>
+
         <form onSubmit={handleSearch} className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex flex-col gap-4 mb-6">
-          <div className="relative">
-            <p className="text-xs text-gray-400 font-bold uppercase mb-1">Where to?</p>
-            <input 
-              type="text" 
-              required
-              placeholder="e.g. HiTech City"
-              value={destination}
-              onChange={(e) => setDestination(e.target.value)}
-              className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-3 outline-none focus:border-syncro-blue"
-            />
-            {suggestions.length > 0 && (
-              <div className="absolute left-0 right-0 mt-2 bg-white rounded-xl shadow-xl border border-gray-100 max-h-48 overflow-y-auto z-50">
-                {suggestions.map((place) => (
-                  <button
-                    key={place.place_id}
-                    type="button"
-                    onClick={() => handleSelectSuggestion(place)}
-                    className="w-full text-left px-4 py-3 hover:bg-slate-50 transition-colors flex items-start gap-3 border-b border-gray-50"
-                  >
-                    <span className="text-xl mt-0.5">📍</span>
-                    <span className="text-sm font-medium text-gray-700 line-clamp-2">{place.display_name}</span>
-                  </button>
-                ))}
-              </div>
-            )}
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-gray-400 font-bold uppercase">Current route</p>
+            <span className="text-xs text-gray-500">{pickup || 'Pickup not set'}</span>
           </div>
-          <button 
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-gray-400 font-bold uppercase">Destination</p>
+            <span className="text-xs text-gray-500">{destination || 'Destination not set'}</span>
+          </div>
+          <button  
             type="submit"
-            disabled={isSearching || !destinationLocation}
+            disabled={isSearching || !destinationLocation || !pickupLocation}
             className="w-full bg-syncro-blue text-white font-bold py-4 rounded-xl hover:bg-blue-700 transition-colors shadow-lg disabled:bg-gray-400"
           >
             {isSearching ? 'Searching...' : 'Search Available Rides'}

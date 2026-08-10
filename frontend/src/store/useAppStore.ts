@@ -5,6 +5,7 @@ interface User {
   name: string;
   email: string;
   rating: number;
+  role: string;
 }
 
 interface AppState {
@@ -16,20 +17,25 @@ interface AppState {
   currentLocation: [number, number] | null;
   route: [number, number][] | null;
   
-  // 📍 NEW: Draggable Pin State
+  // 📍 Search & booking state
+  pickupLocation: [number, number] | null;
+  pickupLabel: string;
   destinationLocation: [number, number] | null;
+  destinationLabel: string;
   
   login: (userData: User) => void;
   logout: () => void;
   toggleDriverMode: () => void;
+  setDriverMode: (value: boolean) => void;
   
   // 🗺️ Map Actions
   setCurrentLocation: (loc: [number, number]) => void;
   setRoute: (coords: [number, number][] | null) => void;
   clearRoute: () => void;
   
-  // 📍 NEW: Draggable Pin Actions
-  setDestinationLocation: (loc: [number, number] | null) => void;
+  // 📍 Search & pin actions
+  setPickupLocation: (loc: [number, number] | null, label?: string) => void;
+  setDestinationLocation: (loc: [number, number] | null, label?: string) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -39,7 +45,10 @@ export const useAppStore = create<AppState>((set) => ({
   
   currentLocation: null,
   route: null,
-  destinationLocation: null, // <-- Starts as null
+  pickupLocation: null,
+  pickupLabel: '',
+  destinationLocation: null,
+  destinationLabel: '',
 
   login: (userData) => set({ user: userData, isAuthenticated: true }),
   logout: () => set({ 
@@ -47,12 +56,17 @@ export const useAppStore = create<AppState>((set) => ({
     isAuthenticated: false, 
     isDriverMode: false, 
     route: null, 
-    destinationLocation: null 
+    pickupLocation: null,
+    pickupLabel: '',
+    destinationLocation: null,
+    destinationLabel: ''
   }),
   toggleDriverMode: () => set((state) => ({ isDriverMode: !state.isDriverMode })),
+  setDriverMode: (value) => set({ isDriverMode: value }),
   
   setCurrentLocation: (loc) => set({ currentLocation: loc }),
   setRoute: (coords) => set({ route: coords }),
   clearRoute: () => set({ route: null }),
-  setDestinationLocation: (loc) => set({ destinationLocation: loc }), // <-- Updates the pin
+  setPickupLocation: (loc, label = '') => set({ pickupLocation: loc, pickupLabel: label }),
+  setDestinationLocation: (loc, label = '') => set({ destinationLocation: loc, destinationLabel: label }),
 }));

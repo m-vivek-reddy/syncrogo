@@ -1,8 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store/useAppStore';
-import { cancelBookingWithBackend, fetchActiveDriverRide, fetchDriverBookings, fetchPassengerBookings } from '../api/auth';
-import RideMap from '../components/RideMap';
+import { cancelBookingWithBackend, fetchActiveDriverRide, fetchDriverBookings, fetchPassengerBookings, searchRidesWithBackend } from '../api/auth';
+import LocationFlow from '../components/LocationFlow';
+import type { DriverOffer } from './AvailableRides';
+import HomeMap from '../components/Map/HomeMap';
+import QuickActions from '../components/Home/QuickActions';
+import NearbyDrivers from '../components/Home/NearbyDrivers';
+import PopularRoutes from '../components/Home/PopularRoutes';
 import { MessageSquare, Phone } from 'lucide-react';
 
 interface Passenger {
@@ -25,11 +30,15 @@ interface ActiveRide {
 
 export default function Home() {
   const navigate = useNavigate();
-  const { isDriverMode } = useAppStore();
+  const { isDriverMode, setDriverMode } = useAppStore();
   
   const [activeRide, setActiveRide] = useState<ActiveRide | null>(null);
   const [passengerBookings, setPassengerBookings] = useState<any[]>([]);
   const [driverBookings, setDriverBookings] = useState<any[]>([]);
+  const [isFindSheetOpen, setIsFindSheetOpen] = useState(false);
+  const [isSearchingRides, setIsSearchingRides] = useState(false);
+  const [nearbyOffers, setNearbyOffers] = useState<DriverOffer[] | null>(null);
+  const [searchedRoute, setSearchedRoute] = useState<{ pickup: string; destination: string } | null>(null);
   const prevSeatsRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -98,12 +107,30 @@ export default function Home() {
     });
   };
 
+  const openFindSheet = () => {
+    setNearbyOffers(null);
+    setSearchedRoute(null);
+    setIsFindSheetOpen(true);
+  };
+
+  const handleOfferRide = () => {
+    setDriverMode(true);
+    navigate('/home');
+  };
+
+  const handleRouteConfirmed = async (route: { pickup: { address: string; lat: number | null; lng: number | null }; destination: { address: string; lat: number | null; lng: number | null } }) => {
+    if (route.pickup.lat === null || route.pickup.lng === null || route.destination.lat === null || route.destination.lng === null) return;
+    setIsSearchingRides(true);
+    setSearchedRoute({ pickup: route.pickup.address, destination: route.destination.address });
+    const result = await searchRidesWithBackend(route.pickup.lat, route.pickup.lng, route.destination.lat, route.destination.lng);
+    setNearbyOffers(result.success ? result.data as DriverOffer[] : []);
+    setIsSearchingRides(false);
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans pb-20">
       {/* MAP PLACEHOLDER */}
-      <div className="h-48 z-0 relative shadow-inner">
-         <RideMap />
-      </div>
+      <HomeMap />
 
       {/* 🔀 CONDITIONAL DASHBOARD CONTENT */}
       {isDriverMode === false ? (
@@ -117,20 +144,20 @@ export default function Home() {
             <p className="text-sm font-bold text-gray-500 uppercase tracking-wider">Ready to Ride</p>
           </div>
 
-          <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 mb-6 flex items-center justify-between">
-             <div>
-                <p className="text-xs text-gray-400 font-bold mb-1">Current Status</p>
-                <p className="font-bold text-gray-700">Looking for a ride</p>
-             </div>
-             <span className="text-3xl">👋</span>
+          <div className="mb-5 rounded-3xl border border-slate-200 bg-white/90 p-4 shadow-sm">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Plan your ride</p>
+                <h3 className="mt-1 text-lg font-extrabold text-slate-900">Find a ride near you</h3>
+                <p className="mt-1 text-sm text-slate-500">Tap below to search your next trip in seconds.</p>
+              </div>
+              <button onClick={openFindSheet} className="rounded-2xl bg-emerald-500 px-4 py-2 text-sm font-bold text-white shadow-sm">Find Offers</button>
+            </div>
           </div>
 
-          <button 
-            onClick={() => navigate('/find-ride')}
-            className="w-full bg-syncro-blue text-white font-bold py-4 rounded-xl hover:bg-blue-700 transition-colors shadow-lg shadow-blue-200 mb-8"
-          >
-            🔍 Find a Ride
-          </button>
+          <div className="mb-8"><QuickActions onOfferRide={handleOfferRide} onTrips={() => navigate('/trips')} onPayments={() => navigate('/payments')} onMessages={() => navigate('/messages')} /></div>
+          <div className="mb-8"><NearbyDrivers /></div>
+          <div className="mb-8"><PopularRoutes onSelect={openFindSheet} /></div>
 
           <h2 className="font-bold text-gray-700 mb-3">Recent Activity</h2>
           {passengerBookings.length > 0 ? (
@@ -358,6 +385,40 @@ export default function Home() {
                You haven't published any routes today.
             </div>
           )}
+        </div>
+      )}
+
+      {isFindSheetOpen && (
+        <div className="fixed inset-0 z-[60] flex items-end bg-slate-900/30" role="dialog" aria-modal="true" aria-label="Find a ride">
+          <div className="max-h-[88vh] w-full overflow-y-auto rounded-t-3xl bg-slate-50 p-4 pb-8 shadow-2xl">
+            <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-gray-300" />
+            <button type="button" onClick={() => setIsFindSheetOpen(false)} className="mb-3 text-sm font-semibold text-gray-500">Close</button>
+            {nearbyOffers === null ? (
+              <LocationFlow onRouteConfirmed={handleRouteConfirmed} />
+            ) : isSearchingRides ? (
+              <div className="rounded-3xl bg-white p-8 text-center font-semibold text-gray-600 shadow-sm">Searching nearby rides...</div>
+            ) : (
+              <div className="mx-auto max-w-md space-y-4">
+                <div className="rounded-2xl bg-white p-4 shadow-sm">
+                  <p className="text-sm font-bold text-gray-800">{searchedRoute?.pickup}</p>
+                  <p className="my-1 text-gray-300">⋮</p>
+                  <p className="text-sm font-bold text-gray-800">{searchedRoute?.destination}</p>
+                </div>
+                <h2 className="font-bold text-gray-800">Nearby Ride Offers</h2>
+                {nearbyOffers.length === 0 ? (
+                  <div className="rounded-2xl bg-white p-6 text-center text-gray-500 shadow-sm">No rides are available right now.</div>
+                ) : nearbyOffers.map((offer) => (
+                  <div key={offer.id} className="rounded-2xl bg-white p-5 shadow-sm">
+                    <div className="flex justify-between">
+                      <div><p className="font-bold text-gray-900">Driver: {offer.driver_name || `Driver ${offer.driver_id}`}</p><p className="text-sm text-gray-500">{offer.available_seats} seats available</p></div>
+                      <p className="text-lg font-extrabold text-emerald-600">₹{offer.price_per_seat}</p>
+                    </div>
+                    <button type="button" onClick={() => navigate('/find-ride', { state: { selectedOffer: offer } })} className="mt-4 w-full rounded-xl bg-indigo-600 py-3 font-semibold text-white hover:bg-indigo-700">Book</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
 

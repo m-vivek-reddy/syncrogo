@@ -1,98 +1,142 @@
-import { Link, useNavigate } from 'react-router-dom';
-import { useAppStore } from '../store/useAppStore';
+import { useNavigate } from "react-router-dom";
+import { useAppStore } from "../store/useAppStore";
+import { supabase } from "../lib/supabase";
+
+import {
+  UserRound,
+  FileText,
+  CarFront,
+  CreditCard,
+  Car,
+  ShieldAlert,
+  Bell,
+  Settings,
+  CircleHelp,
+} from "lucide-react";
+
+import type { LucideIcon } from "lucide-react";
+
+import ProfileHeader from "../components/profile/ProfileHeader";
+import MenuSection from "../components/profile/MenuSection";
+import LogoutButton from "../components/profile/LogoutButton";
+
+interface ExtendedUser {
+  id?: string;
+  name?: string;
+  email?: string;
+  rating?: number;
+}
+
+interface MenuItem {
+  to: string;
+  icon: LucideIcon;
+  title: string;
+  subtitle?: string;
+}
 
 export default function Profile() {
   const navigate = useNavigate();
-  // Grab both the mode and the user data from Zustand
-  const { isDriverMode, user, logout } = useAppStore();
 
-  const handleLogout = () => {
-    localStorage.removeItem('syncrogo_token');
+  const { user, isDriverMode, logout } = useAppStore();
+
+  const currentUser = user as ExtendedUser | null;
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+
+    localStorage.removeItem("syncrogo_token");
+    localStorage.removeItem("token");
+
     logout();
-    navigate('/login', { replace: true });
+
+    navigate("/login", {
+      replace: true,
+    });
   };
 
+      const mainMenu: MenuItem[] = [
+      {
+        to: "/account",
+        icon: UserRound,
+        title: "Account Details",
+        subtitle: "Name, Email, Phone Number",
+      },
+      {
+        to: "/documents",
+        icon: FileText,
+        title: "Identity & Documents",
+        subtitle: "Aadhaar, PAN, Driving License",
+      },
+
+      ...(isDriverMode
+        ? [
+            {
+              to: "/vehicles",
+              icon: CarFront,
+              title: "My Vehicles",
+              subtitle: "Cars, Bikes, RC, Insurance",
+            },
+          ]
+        : []),
+
+      {
+        to: "/payments",
+        icon: CreditCard,
+        title: "Payment Methods",
+        subtitle: "UPI, Cards, Wallet",
+      },
+      {
+        to: "/preferences",
+        icon: Car,
+        title: "Ride Preferences",
+        subtitle: "Seat, Music, AC",
+      },
+    ];
+
+    const supportMenu: MenuItem[] = [
+      {
+        to: "/emergency",
+        icon: ShieldAlert,
+        title: "Emergency Contacts",
+        subtitle: "Trusted Contacts & SOS",
+      },
+      {
+        to: "/notifications",
+        icon: Bell,
+        title: "Notifications",
+      },
+      {
+        to: "/settings",
+        icon: Settings,
+        title: "Settings",
+      },
+      {
+        to: "/support",
+        icon: CircleHelp,
+        title: "Help & Support",
+      },
+    ];
+
   return (
-    <div className="p-6 animate-fade-in">
-      <h1 className="text-3xl font-poppins font-bold text-syncro-dark mb-6">
-        Profile
-      </h1>
+    <div className="min-h-screen bg-gray-50 pb-10">
+      <ProfileHeader
+        name={currentUser?.name || "Vivek Reddy"}
+        email={currentUser?.email || "vivek@gmail.com"}
+        rating={currentUser?.rating || 4.9}
+        verified={true}
+        isDriver={isDriverMode}
+        completedTrips={28}
+        memberSince="2026"
+        location="Hyderabad"
+      />
 
-      {/* User Header Card */}
-      <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex flex-col items-center gap-2 mb-6">
-        <div className="w-24 h-24 bg-blue-50 rounded-full flex items-center justify-center text-4xl mb-2 relative">
-          🧑
-          <div className="absolute bottom-0 right-0 bg-syncro-blue text-white p-1 rounded-full border-2 border-white">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-          </div>
-        </div>
-        
-        {/* Dynamic Name and Rating */}
-        <h2 className="text-2xl font-bold text-syncro-dark">{user?.name || 'Vivek'}</h2>
-        <div className="flex items-center gap-1 text-gray-500 font-medium">
-          <span className="text-yellow-400 text-lg">★</span> {user?.rating || 4.9} Rating
-        </div>
-        <div className="bg-green-50 text-syncro-green px-3 py-1 rounded-full text-xs font-bold mt-2">
-          Identity Verified
-        </div>
+      <div className="px-6 mt-6 space-y-4">
+        <MenuSection items={mainMenu} />
+
+        <MenuSection items={supportMenu} />
+
+        <LogoutButton onLogout={handleLogout} />
       </div>
-
-      {/* Profile Options List */}
-      <div className="bg-white rounded-xl shadow-sm p-4 space-y-3 mb-6">
-        <Link
-          to="/account"
-          className="flex items-center justify-between p-3 hover:bg-slate-50 rounded-lg transition"
-        >
-          <div className="flex items-center space-x-3">
-            <span className="text-xl">💳</span>
-            <span className="text-sm font-medium text-slate-800">Account Details</span>
-          </div>
-          <span className="text-slate-400">›</span>
-        </Link>
-
-        <Link
-          to="/payments"
-          className="flex items-center justify-between p-3 hover:bg-slate-50 rounded-lg transition"
-        >
-          <div className="flex items-center space-x-3">
-            <span className="text-xl">💳</span>
-            <span className="text-sm font-medium text-slate-800">Payment Methods</span>
-          </div>
-          <span className="text-slate-400">›</span>
-        </Link>
-
-        <Link
-          to="/documents"
-          className="flex items-center justify-between p-3 hover:bg-slate-50 rounded-lg transition"
-        >
-          <div className="flex items-center space-x-3">
-            <span className="text-xl">📄</span>
-            <span className="text-sm font-medium text-slate-800">Documents</span>
-          </div>
-          <span className="text-slate-400">›</span>
-        </Link>
-
-        {isDriverMode && (
-          <Link
-            to="/vehicles"
-            className="flex items-center justify-between p-3 hover:bg-slate-50 rounded-lg transition"
-          >
-            <div className="flex items-center space-x-3">
-              <span className="text-xl">🚗</span>
-              <span className="text-sm font-medium text-slate-800">My Vehicles</span>
-            </div>
-            <span className="text-slate-400">›</span>
-          </Link>
-        )}
-      </div>
-
-      {/* Logout Button */}
-      <button
-        onClick={handleLogout}
-        className="w-full bg-red-50 text-red-500 font-bold py-4 rounded-2xl border border-red-100 hover:bg-red-100 transition-colors text-lg"
-      >
-        Log Out
-      </button>
     </div>
   );
 }
