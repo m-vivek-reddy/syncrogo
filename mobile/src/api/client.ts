@@ -88,7 +88,7 @@ export const getApiBaseUrl = (): string => {
       return `${protocol}//${hostname}:8000`;
     }
 
-    return "http://localhost:8000";
+    return "https://syncrogo-backend.onrender.com";
   }
 
   /*
@@ -98,7 +98,7 @@ export const getApiBaseUrl = (): string => {
    */
   const expoHostIp = getExpoHostIp();
 
-  if (expoHostIp) {
+  if (expoHostIp && __DEV__) {
     return `http://${expoHostIp}:8000`;
   }
 
@@ -107,14 +107,14 @@ export const getApiBaseUrl = (): string => {
    *
    * 10.0.2.2 points to the host computer.
    */
-  if (Platform.OS === "android") {
+  if (Platform.OS === "android" && __DEV__) {
     return "http://10.0.2.2:8000";
   }
 
   /*
-   * 5. iOS Simulator.
+   * 5. iOS Simulator / production fallback.
    */
-  return "http://localhost:8000";
+  return "https://syncrogo-backend.onrender.com";
 };
 
 export const API_BASE_URL = getApiBaseUrl();

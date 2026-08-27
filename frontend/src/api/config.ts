@@ -16,6 +16,9 @@ const deriveBackendUrl = (): string => {
       if (explicitEnv && !explicitEnv.includes("127.0.0.1") && !explicitEnv.includes("localhost")) {
         return explicitEnv;
       }
+      if (import.meta.env.PROD) {
+        return "https://syncrogo-backend.onrender.com";
+      }
       return `${protocol}//${hostname}:8000`;
     }
   }
@@ -23,7 +26,7 @@ const deriveBackendUrl = (): string => {
   return (
     import.meta.env.VITE_API_URL ||
     import.meta.env.VITE_API_BASE_URL ||
-    "http://localhost:8000"
+    "https://syncrogo-backend.onrender.com"
   );
 };
 

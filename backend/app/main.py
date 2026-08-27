@@ -106,6 +106,7 @@ app.add_middleware(
         "http://localhost:8000",
         "http://127.0.0.1:8000",
         "https://hj4cqztk-5173.inc1.devtunnels.ms",
+        "https://syncrogo-backend.onrender.com",
     ],
     allow_origin_regex=r"^https?://.*$",
     allow_credentials=True,
