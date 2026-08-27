@@ -4,28 +4,35 @@ import {
   Download,
   Bell,
 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 export default function QuickActions() {
+  const navigate = useNavigate();
+
   const actions = [
     {
       title: "Add Driver",
       icon: UserPlus,
       color: "bg-blue-500",
+      path: "/admin/drivers",
     },
     {
       title: "Approve Documents",
       icon: FileCheck,
       color: "bg-green-500",
+      path: "/admin/documents",
     },
     {
       title: "Download Report",
       icon: Download,
       color: "bg-purple-500",
+      path: "/admin/reports",
     },
     {
       title: "Send Notification",
       icon: Bell,
       color: "bg-red-500",
+      path: "/admin/users",
     },
   ];
 
@@ -41,6 +48,8 @@ export default function QuickActions() {
         {actions.map((action) => (
           <button
             key={action.title}
+            type="button"
+            onClick={() => navigate(action.path)}
             className="rounded-xl border border-slate-200 hover:border-blue-500 hover:shadow-lg transition p-5 flex flex-col items-center gap-3"
           >
             <div

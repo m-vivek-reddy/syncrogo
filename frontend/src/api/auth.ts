@@ -1,4 +1,5 @@
 import { apiClient } from './client';
+import { primeCurrentUser } from './currentUser';
 import { useAppStore } from '../store/useAppStore';
 
 // ==========================================
@@ -6,8 +7,9 @@ import { useAppStore } from '../store/useAppStore';
 // ==========================================
 export const loginWithFastAPI = async (email: string, password: string) => {
   try {
+    const cleanEmail = email.trim().toLowerCase();
     const formData = new URLSearchParams();
-    formData.append('username', email); 
+    formData.append('username', cleanEmail);
     formData.append('password', password);
 
     const response = await apiClient.post('/login', formData, {
@@ -16,26 +18,33 @@ export const loginWithFastAPI = async (email: string, password: string) => {
       },
     });
 
-    const { access_token } = response.data;
+    const { access_token, user: profile } = response.data;
     localStorage.setItem('syncrogo_token', access_token);
-    const profileResponse = await apiClient.get('/api/v1/users/me');
-    const profile = profileResponse.data;
+    localStorage.setItem('token', access_token);
+    primeCurrentUser(access_token, profile);
 
     useAppStore.getState().login({
       id: String(profile.id),
       name: profile.full_name || profile.name || profile.email,
       email: profile.email,
-      rating: profile.rating ?? 4.9,
+      rating: profile.rating ?? 0,
       role: profile.role,
+      profile_photo_url: profile.profile_photo_url,
     });
 
     return {
       success: true,
       role: profile.role,
+      user: profile,
     };
-  } catch (error) {
+  } catch (error: any) {
     console.error('Login Failed:', error);
-    return { success: false, error: 'Invalid credentials or server error' };
+    const errorMsg = error.response?.data?.detail || 'Invalid credentials or server error';
+    return {
+      success: false,
+      error: errorMsg,
+      status: error.response?.status,
+    };
   }
 };
 
@@ -44,19 +53,20 @@ export const loginWithFastAPI = async (email: string, password: string) => {
 // ==========================================
 export const registerWithFastAPI = async (name: string, email: string, password: string) => {
   try {
+    const cleanEmail = email.trim().toLowerCase();
     const response = await apiClient.post('/api/v1/users/register', {
-      full_name: name,
-      email: email,
+      full_name: name.trim(),
+      email: cleanEmail,
       password: password,
       phone: "0000000000", // Placeholder to satisfy backend requirements
       role: "passenger"    // Default role
-    }); 
+    });
 
     return { success: true, data: response.data };
   } catch (error: any) {
     console.error('Registration Failed:', error);
     const errorMsg = error.response?.data?.detail || 'Failed to create account';
-    return { success: false, error: errorMsg };
+    return { success: false, error: errorMsg, status: error.response?.status };
   }
 };
 
@@ -85,15 +95,8 @@ export const bookRideWithBackend = async (rideDetails: {
 
 export const fetchPassengerBookings = async () => {
   try {
-    const token = localStorage.getItem('syncrogo_token') || localStorage.getItem('token');
-    const response = await fetch(`${import.meta.env.VITE_API_URL ?? 'http://localhost:8000'}/bookings/my-rides`, {
-      headers: {
-        Authorization: `Bearer ${token || ''}`,
-      },
-    });
-
-    const data = await response.json();
-    return data;
+    const response = await apiClient.get('/api/v1/bookings/mine');
+    return response.data;
   } catch (error) {
     console.error('Failed to fetch passenger bookings:', error);
     return { success: false, data: [] };
@@ -102,15 +105,8 @@ export const fetchPassengerBookings = async () => {
 
 export const cancelBookingWithBackend = async (bookingId: number) => {
   try {
-    const token = localStorage.getItem('syncrogo_token') || localStorage.getItem('token');
-    const response = await fetch(`${import.meta.env.VITE_API_URL ?? 'http://localhost:8000'}/bookings/${bookingId}`, {
-      method: 'DELETE',
-      headers: {
-        Authorization: `Bearer ${token || ''}`,
-      },
-    });
-
-    return await response.json();
+    const response = await apiClient.post(`/api/v1/bookings/${bookingId}/cancel`);
+    return response.data;
   } catch (error) {
     console.error('Failed to cancel booking:', error);
     return { success: false, message: 'Network error' };
@@ -119,14 +115,8 @@ export const cancelBookingWithBackend = async (bookingId: number) => {
 
 export const fetchDriverBookings = async () => {
   try {
-    const token = localStorage.getItem('syncrogo_token') || localStorage.getItem('token');
-    const response = await fetch(`${import.meta.env.VITE_API_URL ?? 'http://localhost:8000'}/driver/bookings`, {
-      headers: {
-        Authorization: `Bearer ${token || ''}`,
-      },
-    });
-
-    return await response.json();
+    const response = await apiClient.get('/api/v1/bookings/driver/mine');
+    return response.data;
   } catch (error) {
     console.error('Failed to fetch driver bookings:', error);
     return { success: false, data: [] };
@@ -144,12 +134,14 @@ export const publishOfferWithBackend = async (offerData: {
   dropoff_lat: number;
   dropoff_lon: number;
   departure_time?: string | null;
+  distance_km: number;
+  vehicle_type: string;
   price_per_seat: number;
   available_seats: number;
   gender_preference: string;
 }) => {
   try {
-    const response = await apiClient.post('/rides/offer', offerData);
+    const response = await apiClient.post('/api/v1/rides/offer', offerData);
     return { success: true, data: response.data };
   } catch (error: any) {
     console.error('Failed to publish offer:', error);
@@ -168,7 +160,7 @@ export const searchRidesWithBackend = async (
   dropoff_lon: number
 ) => {
   try {
-    const response = await apiClient.get('/rides/search', {
+    const response = await apiClient.get('/api/v1/rides/search', {
       params: { pickup_lat, pickup_lon, dropoff_lat, dropoff_lon }
     });
     return { success: true, data: response.data.data };
@@ -183,7 +175,7 @@ export const searchRidesWithBackend = async (
 // ==========================================
 export const bookSeatWithBackend = async (rideId: number) => {
   try {
-    const response = await apiClient.post(`/rides/${rideId}/book`);
+    const response = await apiClient.post('/api/v1/bookings', { ride_id: rideId });
     return { success: true, data: response.data };
   } catch (error: any) {
     console.error('Failed to book seat:', error);
@@ -197,7 +189,7 @@ export const bookSeatWithBackend = async (rideId: number) => {
 // ==========================================
 export const fetchActiveDriverRide = async () => {
   try {
-    const response = await apiClient.get('/rides/driver/active');
+    const response = await apiClient.get('/api/v1/rides/driver/active');
     return response.data; // Returns { success, data: active_ride }
   } catch (error) {
     console.error('Failed to fetch active ride:', error);
@@ -208,11 +200,16 @@ export const fetchActiveDriverRide = async () => {
 // ==========================================
 // 8. PRICING ENGINE CALCULATION
 // ==========================================
-export const calculateFareWithBackend = async (distanceKm: number, rideType: string = 'carpool') => {
+export const calculateFareWithBackend = async (
+  distanceKm: number,
+  rideType: string = 'carpool',
+  durationMinutes: number = 0,
+) => {
   try {
     const response = await apiClient.post('/pricing/calculate', {
       distance_km: distanceKm,
       ride_type: rideType,
+      duration_minutes: durationMinutes,
     });
     return { success: true, data: response.data };
   } catch (error: any) {

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from app.db.database import get_db
+from app.db.session import get_db
 from app.models.rating import Rating
 from app.models.ride import Ride
 from app.models.booking import Booking
@@ -35,14 +35,14 @@ def submit_rating(
     if not booking:
         raise HTTPException(status_code=403, detail="No booking found for this ride.")
 
-    if current_user.id == ride.driver_id and booking.customer_id == current_user.id:
+    if current_user.id == ride.driver_id and booking.passenger_id == current_user.id:
         # User is both driver and customer (edge case) — not allowed
         raise HTTPException(status_code=403, detail="You cannot rate your own ride.")
 
     if current_user.id == ride.driver_id:
         # Driver reviewing the passenger
-        reviewee_id = booking.customer_id
-    elif current_user.id == booking.customer_id:
+        reviewee_id = booking.passenger_id
+    elif current_user.id == booking.passenger_id:
         # Passenger reviewing the driver
         reviewee_id = ride.driver_id
     else:

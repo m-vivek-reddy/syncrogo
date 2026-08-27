@@ -1,15 +1,16 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { registerWithFastAPI } from '../api/auth';
+import PasswordStrengthMeter from '../components/PasswordStrengthMeter';
 
 export default function Register() {
   const navigate = useNavigate();
-  
+
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false); // Controls password masking
-  
+
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
@@ -17,10 +18,10 @@ export default function Register() {
     e.preventDefault();
     setIsLoading(true);
     setErrorMessage('');
-    
+
     // 1. Send data to FastAPI to create the user
     const regResult = await registerWithFastAPI(name, email, password);
-    
+
     if (regResult.success) {
       // 2. If creation is successful, send them to the OTP screen!
       // We pass the email in the state so the OTP page knows who is verifying.
@@ -34,8 +35,8 @@ export default function Register() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-syncro-dark flex flex-col p-6 font-sans">
-      
-      <button onClick={() => navigate('/')} className="w-10 h-10 bg-white rounded-full shadow-sm flex items-center justify-center border border-gray-200 mt-4 mb-8">
+
+      <button onClick={() => navigate('/login')} className="w-10 h-10 bg-white rounded-full shadow-sm flex items-center justify-center border border-gray-200 mt-4 mb-8">
         <svg className="w-6 h-6 text-syncro-dark" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
       </button>
 
@@ -45,7 +46,7 @@ export default function Register() {
       </div>
 
       <form onSubmit={handleRegister} className="flex flex-col gap-5 flex-grow">
-        
+
         {errorMessage && (
           <div className="bg-red-50 text-red-500 p-3 rounded-xl text-sm font-medium border border-red-100">
             {errorMessage}
@@ -54,42 +55,42 @@ export default function Register() {
 
         <div className="relative">
           <p className="text-sm font-bold text-gray-700 mb-1 ml-1">Full Name</p>
-          <input 
-            type="text" 
+          <input
+            type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="John Doe" 
+            placeholder="John Doe"
             required
-            className="w-full px-4 py-4 bg-white border border-gray-200 rounded-2xl focus:outline-none focus:border-syncro-blue focus:ring-1 focus:ring-syncro-blue" 
+            className="w-full px-4 py-4 bg-white border border-gray-200 rounded-2xl focus:outline-none focus:border-syncro-blue focus:ring-1 focus:ring-syncro-blue"
           />
         </div>
 
         <div className="relative">
           <p className="text-sm font-bold text-gray-700 mb-1 ml-1">Email</p>
-          <input 
-            type="email" 
+          <input
+            type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            placeholder="name@example.com" 
+            placeholder="name@example.com"
             required
-            className="w-full px-4 py-4 bg-white border border-gray-200 rounded-2xl focus:outline-none focus:border-syncro-blue focus:ring-1 focus:ring-syncro-blue" 
+            className="w-full px-4 py-4 bg-white border border-gray-200 rounded-2xl focus:outline-none focus:border-syncro-blue focus:ring-1 focus:ring-syncro-blue"
           />
         </div>
 
         <div className="relative">
           <p className="text-sm font-bold text-gray-700 mb-1 ml-1">Password</p>
           <div className="relative">
-            <input 
-              type={showPassword ? "text" : "password"} 
+            <input
+              type={showPassword ? "text" : "password"}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••" 
+              placeholder="••••••••"
               required
               minLength={6}
-              className="w-full pl-4 pr-12 py-4 bg-white border border-gray-200 rounded-2xl focus:outline-none focus:border-syncro-blue focus:ring-1 focus:ring-syncro-blue" 
+              className="w-full pl-4 pr-12 py-4 bg-white border border-gray-200 rounded-2xl focus:outline-none focus:border-syncro-blue focus:ring-1 focus:ring-syncro-blue"
             />
             {/* Password Visibility Toggle */}
-            <button 
+            <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
               className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none"
@@ -101,10 +102,11 @@ export default function Register() {
               )}
             </button>
           </div>
+          <PasswordStrengthMeter password={password} />
         </div>
 
-        <button 
-          type="submit" 
+        <button
+          type="submit"
           disabled={isLoading}
           className="w-full bg-syncro-dark text-white font-bold py-4 rounded-2xl shadow-lg hover:bg-gray-800 transition-colors text-lg mt-6 flex justify-center items-center"
         >

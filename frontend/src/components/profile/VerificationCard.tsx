@@ -15,9 +15,9 @@ interface VerificationCardProps {
 }
 
 export default function VerificationCard({
-  emailVerified = true,
-  aadhaarVerified = true,
-  drivingLicenseVerified = true,
+  emailVerified = false,
+  aadhaarVerified = false,
+  drivingLicenseVerified = false,
   vehicleVerified = false,
   isDriver = false,
 }: VerificationCardProps) {

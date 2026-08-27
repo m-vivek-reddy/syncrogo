@@ -7,17 +7,17 @@ export default function IdentityVerification({ onBack }) {
       id: 'doc_1',
       title: 'Aadhaar Card',
       required: true,
-      status: 'verified', // 'not_uploaded', 'under_review', 'verified', 'rejected'
-      uploadedAt: '01 Aug 2026',
+      status: 'not_uploaded',
+      uploadedAt: null,
       rejectReason: null,
     },
     {
       id: 'doc_2',
       title: 'Driving License',
       required: true,
-      status: 'rejected',
-      uploadedAt: '01 Aug 2026',
-      rejectReason: 'Photo is blurred and unreadable. Please capture in good lighting.',
+      status: 'not_uploaded',
+      uploadedAt: null,
+      rejectReason: null,
     },
     {
       id: 'doc_3',
@@ -56,7 +56,7 @@ export default function IdentityVerification({ onBack }) {
 
   return (
     <div className="max-w-md mx-auto bg-gray-50 min-h-screen pb-10 font-sans text-gray-800 shadow-xl border border-gray-100">
-      
+
       {/* 1. HEADER */}
       <div className="bg-white px-6 py-4 flex items-center shadow-sm sticky top-0 z-20">
         <button onClick={onBack} className="text-gray-600 font-bold mr-4 p-2 -ml-2 rounded-full hover:bg-gray-100 transition">
@@ -75,15 +75,15 @@ export default function IdentityVerification({ onBack }) {
             </div>
             <div className="text-3xl">{progressPercent === 100 ? '🎉' : '🛡️'}</div>
           </div>
-          
+
           {/* Progress Bar */}
           <div className="w-full bg-gray-100 rounded-full h-2.5 mt-3 overflow-hidden">
-            <div 
-              className="bg-emerald-500 h-2.5 rounded-full transition-all duration-500 ease-out" 
+            <div
+              className="bg-emerald-500 h-2.5 rounded-full transition-all duration-500 ease-out"
               style={{ width: `${progressPercent}%` }}
             ></div>
           </div>
-          
+
           {progressPercent === 100 ? (
             <p className="text-xs text-emerald-600 font-semibold mt-3">✅ You are fully verified and ready to offer rides!</p>
           ) : (
@@ -96,7 +96,7 @@ export default function IdentityVerification({ onBack }) {
       <div className="p-6 space-y-4">
         {documents.map((doc) => (
           <div key={doc.id} className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 relative overflow-hidden transition-all hover:shadow-md">
-            
+
             {/* Required Tag */}
             {doc.required && (
               <div className="absolute top-0 right-0 bg-indigo-50 text-indigo-600 text-[9px] font-extrabold px-3 py-1 rounded-bl-lg uppercase">
@@ -106,10 +106,10 @@ export default function IdentityVerification({ onBack }) {
 
             <div className="flex items-start space-x-4">
               <div className="text-3xl p-2 bg-gray-50 rounded-xl">🪪</div>
-              
+
               <div className="flex-1">
                 <h3 className="font-bold text-gray-900">{doc.title}</h3>
-                
+
                 <div className="mt-1.5 flex items-center space-x-2">
                   {renderStatus(doc.status)}
                   {doc.uploadedAt && (
@@ -129,7 +129,7 @@ export default function IdentityVerification({ onBack }) {
                 {/* Action Buttons */}
                 <div className="mt-4">
                   {doc.status === 'not_uploaded' && (
-                    <button 
+                    <button
                       onClick={() => handleUploadClick(doc.id)}
                       className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2.5 rounded-xl text-sm transition"
                     >
@@ -138,7 +138,7 @@ export default function IdentityVerification({ onBack }) {
                   )}
 
                   {doc.status === 'rejected' && (
-                    <button 
+                    <button
                       onClick={() => handleUploadClick(doc.id)}
                       className="w-full bg-white border-2 border-red-200 hover:border-red-300 text-red-600 font-bold py-2 rounded-xl text-sm transition"
                     >

@@ -20,7 +20,9 @@ export default function FareBreakdownCard({ fareData }: FareBreakdownCardProps) 
       <h2 className="text-base font-bold text-gray-800 mb-4">Estimated fare breakdown</h2>
       <div className="space-y-2.5 text-sm text-gray-600">
         <div className="flex justify-between"><span>Distance ({fareData.distance_km.toFixed(2)} km)</span><span className="font-medium text-gray-800">{formatCurrency(fareData.distance_fare)}</span></div>
-        <div className="flex justify-between"><span>Base fare</span><span className="font-medium text-gray-800">{formatCurrency(fareData.base_fare)}</span></div>
+        {fareData.base_fare > 0 && (
+          <div className="flex justify-between"><span>Base fare</span><span className="font-medium text-gray-800">{formatCurrency(fareData.base_fare)}</span></div>
+        )}
         <div className="flex justify-between border-t border-gray-100 pt-2"><span>Subtotal</span><span className="font-medium text-gray-800">{formatCurrency(fareData.subtotal)}</span></div>
         <div className="flex justify-between text-xs text-gray-500"><span>Platform fee (10%)</span><span>{formatCurrency(fareData.platform_fee)}</span></div>
         <div className="flex justify-between text-xs text-gray-500"><span>GST (5%)</span><span>{formatCurrency(fareData.gst)}</span></div>

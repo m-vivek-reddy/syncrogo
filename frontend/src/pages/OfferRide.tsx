@@ -1,412 +1,993 @@
-import { useState, useEffect, type FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { publishOfferWithBackend } from '../api/auth';
-import { useAppStore } from '../store/useAppStore';
-import RideMap from '../components/RideMap'; // 🗺️ IMPORT THE MAP
+import { useEffect, useRef, useState } from "react";
+import type { FormEvent } from "react";
+import { useNavigate } from "react-router-dom";
+import { CircleMarker, MapContainer, TileLayer, useMapEvents } from "react-leaflet";
+import { apiClient } from "../api/client";
+import { calculateFareWithBackend } from "../api/auth";
+import { getRoadRoute } from "../services/routing";
+import "leaflet/dist/leaflet.css";
 
-interface Suggestion {
+type PlaceResult = {
   place_id: number;
   display_name: string;
   lat: string;
   lon: string;
+};
+
+function DestinationMapPicker({
+  initialPosition,
+  onSelect,
+}: {
+  initialPosition: [number, number];
+  onSelect: (position: [number, number]) => void;
+}) {
+  useMapEvents({
+    click: (event) => onSelect([event.latlng.lat, event.latlng.lng]),
+  });
+
+  return <CircleMarker center={initialPosition} radius={9} pathOptions={{ color: "#059669" }} />;
+}
+
+interface RideForm {
+  pickup_location: string;
+  pickup_lat: string;
+  pickup_lon: string;
+
+  dropoff_location: string;
+  dropoff_lat: string;
+  dropoff_lon: string;
+
+  departure_time: string;
+  available_seats: string;
+  fare: string;
+  vehicle_type: string;
 }
 
 export default function OfferRide() {
   const navigate = useNavigate();
-  
-  // 🧠 Pull map state from your global store
-  const { currentLocation, pickupLabel, pickupLocation, setPickupLocation, setRoute, destinationLocation, setDestinationLocation } = useAppStore();
-  
-  const startLat = pickupLocation ? pickupLocation[0] : currentLocation ? currentLocation[0] : 17.4400;
-  const startLon = pickupLocation ? pickupLocation[1] : currentLocation ? currentLocation[1] : 78.3489;
 
-  const [pickup, setPickup] = useState<string>('');
-  const [destination, setDestination] = useState('');
-  const [activeSearchType, setActiveSearchType] = useState<'pickup' | 'destination' | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<Suggestion[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
-  const [searchError, setSearchError] = useState<string | null>(null);
-  const [loadingGps, setLoadingGps] = useState(false);
-  const [departureTime, setDepartureTime] = useState('');
-  const [price, setPrice] = useState<number>(150);
-  const [seats, setSeats] = useState<number>(2);
-  const [genderPref, setGenderPref] = useState<string>('any');
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [form, setForm] = useState<RideForm>({
+    pickup_location: "",
+    pickup_lat: "",
+    pickup_lon: "",
 
-  const getCurrentLocationName = async (lat: number, lon: number) => {
-    try {
-      const response = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}`,
-        {
-          headers: {
-            Accept: 'application/json',
-            'User-Agent': 'SyncroGo/1.0 (contact@example.com)',
-          },
-        }
-      );
-      const data = await response.json();
-      const address = data.address || {};
-      const locationName = [
-        address.road,
-        address.suburb,
-        address.city || address.town || address.village,
-      ]
-        .filter(Boolean)
-        .join(', ');
+    dropoff_location: "",
+    dropoff_lat: "",
+    dropoff_lon: "",
 
-      return locationName || data.display_name || 'Current GPS Location';
-    } catch (error) {
-      console.error('Reverse geocoding failed:', error);
-      return 'Current GPS Location';
-    }
-  };
+    departure_time: "",
+    available_seats: "1",
+    fare: "",
 
-  const handleUseCurrentLocation = () => {
-    if (!navigator.geolocation) {
-      alert('Geolocation is not supported by this browser.');
-      return;
-    }
+    vehicle_type: "car",
+  });
 
-    setLoadingGps(true);
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const lat = position.coords.latitude;
-        const lon = position.coords.longitude;
-        const address = await getCurrentLocationName(lat, lon);
-        const selectedAddress = address || 'Current GPS Location';
-
-        if (activeSearchType === 'destination') {
-          setDestination(selectedAddress);
-          setDestinationLocation([lat, lon], selectedAddress);
-        } else {
-          setPickup(selectedAddress);
-          setPickupLocation([lat, lon], selectedAddress);
-        }
-
-        setLoadingGps(false);
-        setSearchResults([]);
-        setActiveSearchType(null);
-        setSearchQuery('');
-      },
-      () => {
-        alert('Unable to retrieve your location. Please allow location access.');
-        setLoadingGps(false);
-      },
-      { enableHighAccuracy: true }
-    );
-  };
-
-  const handleSelectSuggestion = (place: Suggestion) => {
-    const selectedAddress = place.display_name;
-    const coords: [number, number] = [parseFloat(place.lat), parseFloat(place.lon)];
-
-    if (activeSearchType === 'destination') {
-      setDestination(selectedAddress);
-      setDestinationLocation(coords, selectedAddress);
-    } else {
-      setPickup(selectedAddress);
-      setPickupLocation(coords, selectedAddress);
-    }
-
-    setSearchResults([]);
-    setSearchQuery('');
-    setActiveSearchType(null);
-  };
+  const [loading, setLoading] = useState(false);
+  const [locationLoading, setLocationLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [destinationResults, setDestinationResults] = useState<PlaceResult[]>([]);
+  const [searchingDestination, setSearchingDestination] = useState(false);
+  const [destinationSearchAttempted, setDestinationSearchAttempted] = useState(false);
+  const [showDestinationMap, setShowDestinationMap] = useState(false);
+  const [mapDestination, setMapDestination] = useState<[number, number] | null>(null);
+  const skipNextDestinationSearch = useRef(false);
+  const [maximumFare, setMaximumFare] = useState<number | null>(null);
+  const [estimatedTripCost, setEstimatedTripCost] = useState<number | null>(null);
+  const [calculatingFare, setCalculatingFare] = useState(false);
+  const [docsPending, setDocsPending] = useState(false);
+  const [docsPendingMessage, setDocsPendingMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!activeSearchType) {
-      setSearchResults([]);
+    let active = true;
+    const checkDocuments = async () => {
+      try {
+        const res = await apiClient.get("/api/v1/documents/");
+        const docs = res.data?.documents || (Array.isArray(res.data) ? res.data : []);
+        const pendingDocs = docs.filter((d: any) => (d.status || "").toLowerCase() === "pending");
+        if (pendingDocs.length > 0) {
+          if (active) {
+            setDocsPending(true);
+            setDocsPendingMessage("Your driver documents are currently pending verification. You cannot offer a ride until your documents are approved by the administrator.");
+          }
+        } else if (docs.length === 0) {
+          if (active) {
+            setDocsPending(true);
+            setDocsPendingMessage("You must upload and verify your driver documents before offering a ride.");
+          }
+        } else {
+          const hasApproved = docs.some((d: any) => ["approved", "verified"].includes((d.status || "").toLowerCase()));
+          if (!hasApproved && active) {
+            setDocsPending(true);
+            setDocsPendingMessage("Your driver documents have not been approved yet. You cannot offer a ride until your documents are verified.");
+          }
+        }
+      } catch {
+        // Keep active
+      }
+    };
+    void checkDocuments();
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    const pickupLat = Number(form.pickup_lat);
+    const pickupLon = Number(form.pickup_lon);
+    const dropoffLat = Number(form.dropoff_lat);
+    const dropoffLon = Number(form.dropoff_lon);
+
+    if (
+      ![form.pickup_lat, form.pickup_lon, form.dropoff_lat, form.dropoff_lon].every((value) => value.trim() !== "") ||
+      ![pickupLat, pickupLon, dropoffLat, dropoffLon].every(Number.isFinite)
+    ) {
+      setMaximumFare(null);
+      setEstimatedTripCost(null);
       return;
     }
 
-    const trimmedQuery = searchQuery.trim();
-    if (trimmedQuery.length < 3) {
-      setSearchResults([]);
-      setSearchError(null);
+    let active = true;
+    const calculateMaximumFare = async () => {
+      setCalculatingFare(true);
+      try {
+        const route = await getRoadRoute(
+          { latitude: pickupLat, longitude: pickupLon },
+          { latitude: dropoffLat, longitude: dropoffLon },
+        );
+        const result = await calculateFareWithBackend(
+          route.distanceKm,
+          form.vehicle_type === "bike" ? "bike" : "carpool",
+          route.durationMinutes,
+        );
+        if (!active || !result.success) return;
+
+        // The driver shares the full trip cost only across passenger seats
+        // offered; the driver's own seat is never included in this division.
+        const tripCost = Number(result.data.distance_fare);
+        const seatsOffered = Math.max(Number(form.available_seats), 1);
+        const farePerPassenger = Math.ceil(tripCost / seatsOffered);
+
+        setEstimatedTripCost(tripCost);
+        setMaximumFare(farePerPassenger);
+        setForm((previous) => ({ ...previous, fare: farePerPassenger.toFixed(2) }));
+      } catch (fareError) {
+        if (active) {
+          console.error("Unable to calculate the maximum fare:", fareError);
+          setMaximumFare(null);
+          setEstimatedTripCost(null);
+        }
+      } finally {
+        if (active) setCalculatingFare(false);
+      }
+    };
+
+    void calculateMaximumFare();
+    return () => { active = false; };
+  }, [form.pickup_lat, form.pickup_lon, form.dropoff_lat, form.dropoff_lon, form.vehicle_type, form.available_seats]);
+
+  const maxAllowedFare = maximumFare !== null ? Math.ceil(maximumFare * 1.15) : null;
+  const fareExceedsMaximum = maxAllowedFare !== null && Number(form.fare) > maxAllowedFare;
+
+  useEffect(() => {
+    if (skipNextDestinationSearch.current) {
+      skipNextDestinationSearch.current = false;
+      return;
+    }
+
+    const query = form.dropoff_location.trim();
+    if (query.length < 3) {
       return;
     }
 
     const controller = new AbortController();
-    const delayDebounce = window.setTimeout(async () => {
-      setIsSearching(true);
-      setSearchError(null);
-
+    const timer = window.setTimeout(async () => {
+      setSearchingDestination(true);
       try {
-        const res = await fetch(
-          `https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(trimmedQuery)}&addressdetails=1&limit=6`,
-          {
-            headers: {
-              Accept: 'application/json',
-              'User-Agent': 'SyncroGo/1.0 (contact@example.com)',
-            },
-            signal: controller.signal,
-          }
+        const response = await fetch(
+          `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&countrycodes=in&limit=6&q=${encodeURIComponent(query)}`,
+          { signal: controller.signal },
         );
-
-        if (!res.ok) {
-          throw new Error(`Search failed: ${res.status}`);
-        }
-
-        const data = await res.json();
-        setSearchResults(data);
-      } catch (err) {
-        if ((err as any).name !== 'AbortError') {
-          console.error('Error fetching suggestions:', err);
-          setSearchError('Unable to load locations. Please try again.');
+        if (!response.ok) throw new Error("Destination search failed");
+        setDestinationResults((await response.json()) as PlaceResult[]);
+        setDestinationSearchAttempted(true);
+      } catch (searchError) {
+        if ((searchError as Error).name !== "AbortError") {
+          console.error("Destination search failed:", searchError);
+          setDestinationResults([]);
+          setDestinationSearchAttempted(true);
         }
       } finally {
-        setIsSearching(false);
+        if (!controller.signal.aborted) setSearchingDestination(false);
       }
-    }, 300);
+    }, 350);
 
     return () => {
-      window.clearTimeout(delayDebounce);
       controller.abort();
+      window.clearTimeout(timer);
     };
-  }, [searchQuery, activeSearchType]);
+  }, [form.dropoff_location]);
 
-  useEffect(() => {
-    if (!pickupLocation || !destinationLocation) return;
+  const setDestination = (address: string, lat: number, lon: number) => {
+    skipNextDestinationSearch.current = true;
+    setForm((previous) => ({
+      ...previous,
+      dropoff_location: address,
+      dropoff_lat: lat.toString(),
+      dropoff_lon: lon.toString(),
+    }));
+    setDestinationResults([]);
+    setDestinationSearchAttempted(false);
+  };
 
-    const fetchRoute = async () => {
-      try {
-        const start = `${pickupLocation[1]},${pickupLocation[0]}`;
-        const end = `${destinationLocation[1]},${destinationLocation[0]}`;
-        const routeRes = await fetch(
-          `https://router.project-osrm.org/route/v1/driving/${start};${end}?overview=full&geometries=geojson`
-        );
-        const routeData = await routeRes.json();
-
-        if (routeData.routes && routeData.routes.length > 0) {
-          const route = routeData.routes[0];
-          const coordinates = route.geometry.coordinates.map((c: [number, number]) => [c[1], c[0]]);
-          setRoute(coordinates);
-        }
-      } catch (error) {
-        console.error('Routing failed:', error);
-      }
-    };
-
-    void fetchRoute();
-  }, [pickupLocation, destinationLocation, setRoute]);
-
-  // 🚀 3. PUBLISH TO DATABASE WITH REAL COORDS
-  const handlePublish = async (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!destinationLocation) return alert("Please select a destination from the dropdown list.");
-    
-    setIsSubmitting(true);
-    
-    const result = await publishOfferWithBackend({
-      pickup_location: pickup || pickupLabel || 'Current GPS Location', 
-      pickup_lat: startLat,
-      pickup_lon: startLon,
-      dropoff_location: destination,
-      dropoff_lat: destinationLocation[0], 
-      dropoff_lon: destinationLocation[1],
-      departure_time: departureTime || null,
-      price_per_seat: price,
-      available_seats: seats,
-      gender_preference: genderPref
-    });
-
-    setIsSubmitting(false);
-
-    if (result.success) {
-      alert("🎉 Ride offer published successfully!");
-      // Reset map state before leaving
-      setDestinationLocation(null);
-      setRoute(null);
-      navigate('/home');
-    } else {
-      alert(`Failed to publish: ${result.error}`);
+  const selectMapDestination = async (position: [number, number]) => {
+    setMapDestination(position);
+    const [lat, lon] = position;
+    try {
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}`,
+      );
+      const data = response.ok ? await response.json() : null;
+      setDestination(data?.display_name ?? `${lat.toFixed(6)}, ${lon.toFixed(6)}`, lat, lon);
+    } catch {
+      setDestination(`${lat.toFixed(6)}, ${lon.toFixed(6)}`, lat, lon);
     }
   };
 
+  // ============================================================
+  // HANDLE INPUT
+  // ============================================================
+
+  const handleChange = (
+    e: React.ChangeEvent<
+      HTMLInputElement | HTMLSelectElement
+    >
+  ) => {
+    const { name, value } = e.target;
+
+    if (name === "dropoff_location" && value.trim().length < 3) {
+      setDestinationResults([]);
+      setDestinationSearchAttempted(false);
+    }
+
+    setForm((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
+  };
+
+  // ============================================================
+  // GET CURRENT LOCATION
+  // ============================================================
+
+  const getCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      setError(
+        "Geolocation is not supported by your browser."
+      );
+      return;
+    }
+
+    setLocationLoading(true);
+    setError("");
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const lat = position.coords.latitude;
+        const lon = position.coords.longitude;
+
+        setForm((prev) => ({
+          ...prev,
+          pickup_lat: lat.toString(),
+          pickup_lon: lon.toString(),
+        }));
+
+        setLocationLoading(false);
+
+        // Try reverse geocoding
+        try {
+          const response = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`
+          );
+
+          if (response.ok) {
+            const data = await response.json();
+
+            const address =
+              data?.display_name ||
+              `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+
+            setForm((prev) => ({
+              ...prev,
+              pickup_location: address,
+            }));
+          }
+        } catch (err) {
+          console.error(
+            "Reverse geocoding failed:",
+            err
+          );
+
+          setForm((prev) => ({
+            ...prev,
+            pickup_location: `${lat.toFixed(
+              6
+            )}, ${lon.toFixed(6)}`,
+          }));
+        }
+      },
+      (err) => {
+        console.error("Location error:", err);
+
+        setLocationLoading(false);
+
+        switch (err.code) {
+          case err.PERMISSION_DENIED:
+            setError(
+              "Location permission was denied. Please allow location access."
+            );
+            break;
+
+          case err.POSITION_UNAVAILABLE:
+            setError(
+              "Your current location is unavailable."
+            );
+            break;
+
+          case err.TIMEOUT:
+            setError(
+              "Location request timed out. Please try again."
+            );
+            break;
+
+          default:
+            setError(
+              "Unable to get your current location."
+            );
+        }
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 15000,
+        maximumAge: 0,
+      }
+    );
+  };
+
+  // ============================================================
+  // GET CURRENT DATE/TIME MINIMUM
+  // ============================================================
+
+  useEffect(() => {
+    const now = new Date();
+
+    now.setMinutes(
+      now.getMinutes() -
+        now.getTimezoneOffset()
+    );
+
+    setForm((prev) => ({
+      ...prev,
+      departure_time:
+        prev.departure_time ||
+        now.toISOString().slice(0, 16),
+    }));
+  }, []);
+
+  // ============================================================
+  // VALIDATION
+  // ============================================================
+
+  const validateForm = () => {
+    if (!form.pickup_location.trim()) {
+      return "Please enter your pickup location.";
+    }
+
+    if (!form.dropoff_location.trim()) {
+      return "Please enter your destination.";
+    }
+
+    if (!form.pickup_lat || !form.pickup_lon) {
+      return "Please provide the pickup location coordinates.";
+    }
+
+    if (!form.dropoff_lat || !form.dropoff_lon) {
+      return "Please provide the destination coordinates.";
+    }
+
+    if (!form.departure_time) {
+      return "Please select a departure date and time.";
+    }
+
+    if (
+      Number(form.available_seats) < 1 ||
+      Number(form.available_seats) > 10
+    ) {
+      return "Available seats must be between 1 and 10.";
+    }
+
+    if (Number(form.fare) < 0) {
+      return "Fare cannot be negative.";
+    }
+
+    if (fareExceedsMaximum && maxAllowedFare !== null) {
+      return `Fare cannot exceed 15% above the recommended fare rate of ₹${maxAllowedFare.toFixed(2)}.`;
+    }
+
+    if (docsPending) {
+      return docsPendingMessage || "Your driver documents are currently pending approval. You cannot offer a ride until your documents are verified.";
+    }
+
+    return null;
+  };
+
+  // ============================================================
+  // SUBMIT RIDE
+  // ============================================================
+
+  const handleSubmit = async (
+    e: FormEvent<HTMLFormElement>
+  ) => {
+    e.preventDefault();
+
+    setError("");
+    setSuccess("");
+
+    const validationError = validateForm();
+
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      // The backend requires the real road distance (distance_km) to
+      // validate the offered fare, so resolve the route before publishing.
+      let route;
+
+      try {
+        route = await getRoadRoute(
+          {
+            latitude: Number(form.pickup_lat),
+            longitude: Number(form.pickup_lon),
+          },
+          {
+            latitude: Number(form.dropoff_lat),
+            longitude: Number(form.dropoff_lon),
+          },
+        );
+      } catch (routeError) {
+        console.error(
+          "Unable to calculate the road route:",
+          routeError
+        );
+
+        setError(
+          "Unable to calculate the road route for your trip. Please verify your pickup and destination and try again."
+        );
+        return;
+      }
+
+      const payload = {
+        pickup_location:
+          form.pickup_location.trim(),
+
+        pickup_lat: Number(form.pickup_lat),
+        pickup_lon: Number(form.pickup_lon),
+
+        dropoff_location:
+          form.dropoff_location.trim(),
+
+        dropoff_lat: Number(form.dropoff_lat),
+        dropoff_lon: Number(form.dropoff_lon),
+
+        departure_time: new Date(
+          form.departure_time
+        ).toISOString(),
+
+        distance_km: route.distanceKm,
+
+        available_seats: Number(
+          form.available_seats
+        ),
+
+        vehicle_type: form.vehicle_type,
+        price_per_seat: Number(form.fare),
+        gender_preference: "any",
+      };
+
+      console.log(
+        "Creating ride:",
+        payload
+      );
+
+      const response = await apiClient.post(
+        "/rides/offer",
+        payload
+      );
+
+      console.log(
+        "Ride created:",
+        response.data
+      );
+
+      setSuccess(
+        "Your ride has been offered successfully!"
+      );
+
+      setTimeout(() => {
+        navigate("/trips");
+      }, 1000);
+    } catch (err: any) {
+      console.error(
+        "Failed to offer ride:",
+        err
+      );
+
+      if (err?.response?.status === 401) {
+        setError(
+          "Your session has expired. Please login again."
+        );
+      } else if (
+        err?.response?.status === 403
+      ) {
+        setError(
+          "You are not authorized to offer a ride."
+        );
+      } else if (
+        err?.response?.status === 422
+      ) {
+        const detail =
+          err?.response?.data?.detail;
+
+        if (Array.isArray(detail)) {
+          setError(
+            detail
+              .map(
+                (item: any) => {
+                  const field =
+                    Array.isArray(item?.loc)
+                      ? item.loc[item.loc.length - 1]
+                      : null;
+
+                  return field
+                    ? `${field}: ${
+                        item?.msg || "Invalid input"
+                      }`
+                    : item?.msg || "Invalid input";
+                }
+              )
+              .join(", ")
+          );
+        } else {
+          setError(
+            detail ||
+              "Please check the information you entered."
+          );
+        }
+      } else {
+        setError(
+          err?.response?.data?.detail ||
+            "Unable to offer the ride. Please try again."
+        );
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ============================================================
+  // PAGE
+  // ============================================================
+
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans relative">
-      
+    <div className="min-h-full bg-slate-50">
       {/* HEADER */}
-      <div className="bg-white px-6 py-6 rounded-b-3xl shadow-sm z-20 relative">
-        <div className="flex items-center gap-4">
-          <button 
-            onClick={() => {
-              setDestinationLocation(null);
-              setRoute(null);
-              navigate(-1);
-            }} 
-            className="w-10 h-10 bg-gray-50 rounded-full flex items-center justify-center hover:bg-gray-100 transition-colors"
+
+      <div className="border-b border-slate-200 bg-white px-6 py-6">
+        <div className="mx-auto max-w-4xl">
+          <button
+            type="button"
+            onClick={() => navigate(-1)}
+            className="mb-4 text-sm font-semibold text-slate-500 transition hover:text-slate-900"
           >
-            <svg className="w-6 h-6 text-syncro-dark" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+            ← Back
           </button>
-          <h1 className="text-2xl font-bold font-poppins text-syncro-dark">Offer a Ride</h1>
+
+          <h1 className="text-2xl font-bold text-slate-900">
+            Offer a Ride
+          </h1>
+
+          <p className="mt-1 text-slate-500">
+            Share your journey with passengers
+            traveling the same way.
+          </p>
         </div>
       </div>
 
-      {/* 🗺️ THE LIVE MAP */}
-      <div className="h-48 z-0 relative shadow-inner">
-         <RideMap />
-      </div>
+      {/* CONTENT */}
 
-      {/* SCROLLABLE FORM */}
-      <div className="flex-grow p-6 overflow-y-auto z-10 -mt-4">
-        <form onSubmit={handlePublish} className="flex flex-col gap-6 relative">
-          
-          {/* Route Selection */}
-          <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
-            <h2 className="font-bold text-gray-700 mb-4">Your Route</h2>
-            <div className="flex flex-col gap-4 relative">
-              <div className="absolute left-2.5 top-5 bottom-5 w-0.5 bg-gray-200"></div>
+      <div className="mx-auto max-w-4xl px-4 py-6 sm:px-6">
+        <form
+          onSubmit={handleSubmit}
+          className="space-y-6"
+        >
+          {/* PENDING DOCUMENTS WARNING */}
+          {docsPending && (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 shadow-sm">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">⏳</span>
+                <h3 className="font-bold text-amber-900">Driver Documents Pending Verification</h3>
+              </div>
+              <p className="mt-1 text-sm text-amber-800">
+                {docsPendingMessage || "Your driver documents are currently under review. You cannot publish ride offers until they are verified and approved."}
+              </p>
+              <button
+                type="button"
+                onClick={() => navigate("/documents")}
+                className="mt-3 inline-block font-semibold text-amber-900 underline hover:text-amber-950 text-sm"
+              >
+                View or upload documents →
+              </button>
+            </div>
+          )}
 
-              <div className="flex items-center gap-4 z-10">
-                <div className="w-5 h-5 rounded-full bg-syncro-dark flex-shrink-0 border-4 border-white shadow-sm"></div>
-                <div className="flex-grow">
-                  <p className="text-xs text-gray-400 font-bold uppercase mb-1">From</p>
-                  <div className="relative">
+          {/* ERROR */}
+
+          {error && (
+            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+              ⚠️ {error}
+            </div>
+          )}
+
+          {/* SUCCESS */}
+
+          {success && (
+            <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-medium text-green-700">
+              ✓ {success}
+            </div>
+          )}
+
+          {/* ROUTE */}
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h2 className="text-lg font-bold text-slate-900">
+              Journey
+            </h2>
+
+            <p className="mt-1 text-sm text-slate-500">
+              Enter where your ride starts and
+              where you are going.
+            </p>
+
+            <div className="mt-6 space-y-5">
+              {/* PICKUP */}
+
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-slate-700">
+                  Pickup location
+                </label>
+
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    name="pickup_location"
+                    value={
+                      form.pickup_location
+                    }
+                    onChange={handleChange}
+                    placeholder="Enter pickup location"
+                    className="flex-1 rounded-xl border border-slate-300 px-4 py-3 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                  />
+
+                  <button
+                    type="button"
+                    onClick={
+                      getCurrentLocation
+                    }
+                    disabled={
+                      locationLoading
+                    }
+                    className="rounded-xl bg-emerald-500 px-4 py-3 font-semibold text-white transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {locationLoading
+                      ? "..."
+                      : "📍 GPS"}
+                  </button>
+                </div>
+
+                <div className="mt-3 grid grid-cols-2 gap-3">
+                  <input
+                    type="number"
+                    step="any"
+                    name="pickup_lat"
+                    value={form.pickup_lat}
+                    onChange={handleChange}
+                    placeholder="Latitude"
+                    className="rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-emerald-500"
+                  />
+
+                  <input
+                    type="number"
+                    step="any"
+                    name="pickup_lon"
+                    value={form.pickup_lon}
+                    onChange={handleChange}
+                    placeholder="Longitude"
+                    className="rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-emerald-500"
+                  />
+                </div>
+              </div>
+
+              {/* DESTINATION */}
+
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-slate-700">
+                  Destination
+                </label>
+
+                <div className="relative">
+                  <div className="flex gap-2">
                     <input
                       type="text"
-                      value={pickup}
-                      onFocus={() => {
-                        setActiveSearchType('pickup');
-                        setSearchQuery(pickup);
-                      }}
-                      onChange={(e) => {
-                        setPickup(e.target.value);
-                        setActiveSearchType('pickup');
-                        setSearchQuery(e.target.value);
-                      }}
-                      placeholder="Search pickup or use GPS"
-                      className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 outline-none focus:border-syncro-green"
+                      name="dropoff_location"
+                      value={form.dropoff_location}
+                      onChange={handleChange}
+                      placeholder="Search destination"
+                      autoComplete="off"
+                      className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
                     />
-                    {activeSearchType === 'pickup' && searchResults.length > 0 && (
-                      <div className="absolute left-0 right-0 mt-2 bg-white rounded-xl shadow-xl border border-gray-100 max-h-48 overflow-y-auto z-50 divide-y divide-gray-50">
-                        {searchResults.map((place) => (
-                          <button
-                            key={place.place_id}
-                            type="button"
-                            onClick={() => handleSelectSuggestion(place)}
-                            className="w-full text-left px-4 py-3 hover:bg-slate-50 transition-colors flex items-start gap-3"
-                          >
-                            <span className="text-xl mt-0.5">📍</span>
-                            <span className="text-sm font-medium text-gray-700 line-clamp-2">{place.display_name}</span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
+                    <button
+                      type="button"
+                      onClick={() => setShowDestinationMap(true)}
+                      className="shrink-0 rounded-xl border border-emerald-500 px-4 py-3 font-semibold text-emerald-700 transition hover:bg-emerald-50"
+                    >
+                      Select on map
+                    </button>
                   </div>
+
+                  {(destinationResults.length > 0 || searchingDestination || destinationSearchAttempted) && (
+                    <div className="absolute z-20 mt-2 max-h-64 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
+                      {searchingDestination && <p className="px-3 py-2 text-sm text-slate-500">Searching locations…</p>}
+                      {destinationResults.map((place) => (
+                        <button
+                          key={place.place_id}
+                          type="button"
+                          onClick={() => setDestination(place.display_name, Number(place.lat), Number(place.lon))}
+                          className="w-full rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-emerald-50"
+                        >
+                          {place.display_name}
+                        </button>
+                      ))}
+                      {!searchingDestination && destinationResults.length === 0 && (
+                        <p className="px-3 py-2 text-sm text-slate-500">No matching places found. Try a more specific name or choose it on the map.</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-3 grid grid-cols-2 gap-3">
+                  <input
+                    type="number"
+                    step="any"
+                    name="dropoff_lat"
+                    value={form.dropoff_lat}
+                    onChange={handleChange}
+                    placeholder="Latitude"
+                    className="rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-emerald-500"
+                  />
+
+                  <input
+                    type="number"
+                    step="any"
+                    name="dropoff_lon"
+                    value={form.dropoff_lon}
+                    onChange={handleChange}
+                    placeholder="Longitude"
+                    className="rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-emerald-500"
+                  />
                 </div>
               </div>
+            </div>
+          </div>
 
-              <div className="flex items-center gap-4 z-10 relative">
-                <div className="w-5 h-5 rounded-full bg-syncro-green flex-shrink-0 border-4 border-white shadow-sm"></div>
-                <div className="flex-grow">
-                   <p className="text-xs text-gray-400 font-bold uppercase mb-1">To</p>
-                   <div className="relative">
-                     <input 
-                        type="text" 
-                        required
-                        value={destination}
-                        onFocus={() => {
-                          setActiveSearchType('destination');
-                          setSearchQuery(destination);
-                        }}
-                        onChange={(e) => {
-                          setDestination(e.target.value);
-                          setActiveSearchType('destination');
-                          setSearchQuery(e.target.value);
-                        }}
-                        placeholder="Search destination"
-                        className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 outline-none focus:border-syncro-green"
-                     />
-                     {activeSearchType === 'destination' && searchResults.length > 0 && (
-                       <div className="absolute left-0 right-0 mt-2 bg-white rounded-xl shadow-xl border border-gray-100 max-h-48 overflow-y-auto z-50 divide-y divide-gray-50">
-                         {searchResults.map((place) => (
-                           <button
-                             key={place.place_id}
-                             type="button"
-                             onClick={() => handleSelectSuggestion(place)}
-                             className="w-full text-left px-4 py-3 hover:bg-slate-50 transition-colors flex items-start gap-3"
-                           >
-                             <span className="text-xl mt-0.5">📍</span>
-                             <span className="text-sm font-medium text-gray-700 line-clamp-2">{place.display_name}</span>
-                           </button>
-                         ))}
-                       </div>
-                     )}
-                   </div>
+          {showDestinationMap && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/50 p-4">
+              <div className="w-full max-w-3xl overflow-hidden rounded-2xl bg-white shadow-2xl">
+                <div className="flex items-center justify-between border-b border-slate-200 p-4">
+                  <div>
+                    <h3 className="font-bold text-slate-900">Choose destination on the map</h3>
+                    <p className="text-sm text-slate-500">Click the exact destination to set its location.</p>
+                  </div>
+                  <button type="button" onClick={() => setShowDestinationMap(false)} className="rounded-lg px-3 py-2 font-semibold text-slate-600 hover:bg-slate-100">Close</button>
+                </div>
+                <div className="h-[460px]">
+                  <MapContainer center={mapDestination ?? [17.385, 78.487]} zoom={mapDestination ? 15 : 11} className="h-full w-full">
+                    <TileLayer attribution="&copy; OpenStreetMap contributors" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                    <DestinationMapPicker initialPosition={mapDestination ?? [17.385, 78.487]} onSelect={selectMapDestination} />
+                    {mapDestination && <CircleMarker center={mapDestination} radius={9} pathOptions={{ color: "#059669" }} />}
+                  </MapContainer>
+                </div>
+                <div className="flex justify-end gap-3 p-4">
+                  <button type="button" onClick={() => setShowDestinationMap(false)} className="rounded-xl bg-emerald-500 px-5 py-3 font-semibold text-white hover:bg-emerald-600">Done</button>
                 </div>
               </div>
+            </div>
+          )}
 
-              <div className="flex flex-col gap-3 z-10">
-                <button
-                  type="button"
-                  onClick={handleUseCurrentLocation}
-                  className="w-full rounded-xl bg-slate-100 px-4 py-3 text-left text-sm font-semibold text-slate-700 hover:bg-slate-200 transition-colors"
+          {/* RIDE DETAILS */}
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h2 className="text-lg font-bold text-slate-900">
+              Ride Details
+            </h2>
+
+            <div className="mt-6 grid gap-5 sm:grid-cols-2">
+              {/* DATE */}
+
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-slate-700">
+                  Departure date & time
+                </label>
+
+                <input
+                  type="datetime-local"
+                  name="departure_time"
+                  value={
+                    form.departure_time
+                  }
+                  onChange={handleChange}
+                  min={form.departure_time}
+                  className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                />
+              </div>
+
+              {/* SEATS */}
+
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-slate-700">
+                  Available seats
+                </label>
+
+                <select
+                  name="available_seats"
+                  value={
+                    form.available_seats
+                  }
+                  onChange={handleChange}
+                  className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
                 >
-                  {loadingGps ? 'Locating current location…' : 'Use current GPS location'}
-                </button>
-                {searchError && <p className="text-sm text-rose-600">{searchError}</p>}
-                {activeSearchType && searchQuery.trim().length >= 3 && !isSearching && searchResults.length === 0 && (
-                  <p className="text-sm text-slate-500">No locations found. Try a different query.</p>
+                  <option value="1">
+                    1 seat
+                  </option>
+
+                  <option value="2">
+                    2 seats
+                  </option>
+
+                  <option value="3">
+                    3 seats
+                  </option>
+
+                  <option value="4">
+                    4 seats
+                  </option>
+
+                  <option value="5">
+                    5 seats
+                  </option>
+
+                  <option value="6">
+                    6 seats
+                  </option>
+                </select>
+              </div>
+
+              {/* VEHICLE */}
+
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-slate-700">
+                  Vehicle type
+                </label>
+
+                <select
+                  name="vehicle_type"
+                  value={form.vehicle_type}
+                  onChange={handleChange}
+                  className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                >
+                  <option value="car">
+                    🚗 Car
+                  </option>
+
+                  <option value="bike">
+                    🏍️ Bike
+                  </option>
+                </select>
+              </div>
+
+              {/* FARE */}
+
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-slate-700">
+                  Fare per passenger
+                </label>
+
+                <div className="relative">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 font-semibold text-slate-500">
+                    ₹
+                  </span>
+
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    name="fare"
+                    value={form.fare}
+                    readOnly
+                    aria-describedby="fare-calculation"
+                    placeholder="Select pickup and destination"
+                    className="w-full cursor-not-allowed rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 pl-9 font-semibold text-emerald-800 outline-none"
+                  />
+                </div>
+                {calculatingFare && <p className="mt-2 text-xs font-medium text-slate-500">Calculating maximum fare from distance and travel time…</p>}
+                {maximumFare !== null && estimatedTripCost !== null && !calculatingFare && (
+                  <div id="fare-calculation" className="mt-2 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                    <p className="font-semibold">Estimated trip cost: ₹{estimatedTripCost.toFixed(0)}</p>
+                    <p className="mt-1">Recommended fare per seat: <strong>₹{maximumFare.toFixed(0)}</strong> (Max allowed +15%: <strong>₹{(maximumFare * 1.15).toFixed(0)}</strong>)</p>
+                  </div>
                 )}
               </div>
             </div>
           </div>
 
-          <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex flex-col gap-5">
-            <div className="flex items-center gap-4">
-              <div className="flex-1">
-                <p className="text-xs text-gray-400 font-bold uppercase mb-1">Schedule</p>
-                <input
-                  type="datetime-local"
-                  value={departureTime}
-                  onChange={(e) => setDepartureTime(e.target.value)}
-                  className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 outline-none focus:border-syncro-green"
-                />
+          {/* LOCATION INFO */}
+
+          <div className="rounded-2xl border border-blue-200 bg-blue-50 p-5">
+            <div className="flex gap-3">
+              <div className="text-xl">
+                📍
               </div>
-            </div>
 
-            <div className="flex justify-between items-center">
-              <label className="font-medium text-gray-600">Price per seat (₹)</label>
-              <input 
-                type="number" 
-                value={price}
-                onChange={(e) => setPrice(Number(e.target.value))}
-                className="w-24 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-center outline-none focus:border-syncro-green font-bold text-syncro-green"
-              />
-            </div>
+              <div>
+                <h3 className="font-semibold text-blue-900">
+                  Location information
+                </h3>
 
-            <div className="flex justify-between items-center">
-              <label className="font-medium text-gray-600">Available Seats</label>
-              <div className="flex items-center gap-3">
-                <button type="button" onClick={() => setSeats(Math.max(1, seats - 1))} className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center font-bold">-</button>
-                <span className="font-bold w-4 text-center">{seats}</span>
-                <button type="button" onClick={() => setSeats(Math.min(4, seats + 1))} className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center font-bold">+</button>
+                <p className="mt-1 text-sm text-blue-700">
+                  SyncroGo uses your pickup and
+                  destination coordinates to match
+                  passengers traveling along a
+                  similar route.
+                </p>
               </div>
-            </div>
-
-            <div className="flex flex-col gap-2">
-              <label className="font-medium text-gray-600">Safety Preference</label>
-              <select 
-                value={genderPref}
-                onChange={(e) => setGenderPref(e.target.value)}
-                className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-3 outline-none focus:border-syncro-green"
-              >
-                <option value="any">Any Gender</option>
-                <option value="female_only">Female Only</option>
-                <option value="male_only">Male Only</option>
-              </select>
             </div>
           </div>
 
-          <button 
-            type="submit"
-            disabled={isSubmitting || !destinationLocation || !pickupLocation}
-            className="w-full bg-syncro-dark text-white font-bold py-4 rounded-xl hover:bg-black transition-colors shadow-lg mt-2 disabled:bg-gray-400"
-          >
-            {isSubmitting ? 'Publishing...' : 'Publish Ride Offer'}
-          </button>
+          {/* SUBMIT */}
+
+          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              onClick={() => navigate(-1)}
+              disabled={loading}
+              className="rounded-xl border border-slate-300 bg-white px-6 py-3 font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+
+            <button
+              type="submit"
+              disabled={loading || docsPending}
+              className="rounded-xl bg-emerald-500 px-8 py-3 font-semibold text-white shadow-sm transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {loading
+                ? "Offering Ride..."
+                : docsPending
+                ? "⏳ Documents Pending"
+                : "🚗 Offer Ride"}
+            </button>
+          </div>
         </form>
       </div>
     </div>

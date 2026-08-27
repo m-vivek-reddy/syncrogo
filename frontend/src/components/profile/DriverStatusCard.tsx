@@ -9,7 +9,7 @@ interface DriverStatusCardProps {
 export default function DriverStatusCard({
   isDriverMode,
   vehicleVerified = false,
-  documentsVerified = true,
+  documentsVerified = false,
 }: DriverStatusCardProps) {
   if (!isDriverMode) return null;
 

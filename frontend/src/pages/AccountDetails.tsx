@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiClient } from '../api/client';
+import { getCurrentUser } from '../api/currentUser';
 import { useAppStore } from '../store/useAppStore';
 
 interface ProfileData {
@@ -10,6 +11,8 @@ interface ProfileData {
   phone?: string;
   is_verified: boolean;
   rating?: number;
+  role?: string;
+  profile_photo_url?: string;
 }
 
 export default function AccountDetails() {
@@ -29,15 +32,19 @@ export default function AccountDetails() {
   useEffect(() => {
     const fetchProfile = async () => {
       try {
-        const response = await apiClient.get('/api/v1/users/me');
-        setProfile(response.data);
-        if (response.data?.name || response.data?.email) {
+        const token = localStorage.getItem("syncrogo_token") || localStorage.getItem("token");
+        if (!token) return;
+
+        const currentProfile = await getCurrentUser<ProfileData>(token);
+        setProfile(currentProfile);
+        if (currentProfile.name || currentProfile.email) {
         login({
-          id: String(response.data.id),
-          name: response.data.name || response.data.email,
-          email: response.data.email,
-          rating: response.data.rating ?? user?.rating ?? 0,
-          role: response.data.role || "customer",
+          id: String(currentProfile.id),
+          name: currentProfile.name || currentProfile.email,
+          email: currentProfile.email,
+          rating: currentProfile.rating ?? user?.rating ?? 0,
+          role: currentProfile.role || "customer",
+          profile_photo_url: currentProfile.profile_photo_url,
         });
         }
       } catch (err: any) {
@@ -74,6 +81,7 @@ export default function AccountDetails() {
         email: response.data.email,
         rating: response.data.rating ?? user?.rating ?? 0,
         role: response.data.role || "customer",
+        profile_photo_url: response.data.profile_photo_url,
       });
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to update account details.');

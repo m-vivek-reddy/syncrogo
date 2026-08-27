@@ -1,470 +1,73 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { apiClient } from "../api/client";
+import { getCurrentUser } from "../api/currentUser";
+import { Trash2 } from "lucide-react";
 
-
-const users = [
-  {
-    id: 1,
-    name: "Vivek Reddy",
-    email: "vivekandteam848@gmail.com",
-    role: "Passenger",
-    status: "Offline",
-  },
-  {
-    id: 2,
-    name: "Admin User",
-    email: "admin@syncrogo.com",
-    role: "Admin",
-    status: "Online",
-  },
-];
-
+type User = { id: number; name?: string; full_name?: string; email: string; role: string; is_online?: boolean };
 
 export default function AdminUsers() {
-
   const [search, setSearch] = useState("");
-
-  const filteredUsers = users.filter((user)=>
-    user.name
-      .toLowerCase()
-      .includes(search.toLowerCase()) ||
-    user.email
-      .toLowerCase()
-      .includes(search.toLowerCase())
-  );
-
-
-  return (
-
-    <div className="min-h-screen bg-gray-100 p-6">
-
-
-      {/* Header */}
-
-      <div className="mb-6">
-
-        <h1 className="
-        text-4xl
-        font-bold
-        text-gray-900
-        ">
-          User Management
-        </h1>
-
-
-        <p className="
-        text-gray-600
-        mt-2
-        ">
-          Manage users, roles and account status
-        </p>
-
-
-      </div>
-
-
-
-
-      {/* Stats */}
-
-      <div className="
-      grid
-      grid-cols-4
-      gap-5
-      mb-6
-      ">
-
-
-        <StatCard
-          title="Total Users"
-          value="1250"
-        />
-
-
-        <StatCard
-          title="Passengers"
-          value="1100"
-        />
-
-
-        <StatCard
-          title="Drivers"
-          value="130"
-        />
-
-
-        <StatCard
-          title="Admins"
-          value="20"
-        />
-
-
-      </div>
-
-
-
-
-
-      {/* Search */}
-
-      <div className="
-      bg-white
-      p-4
-      rounded-xl
-      shadow
-      mb-5
-      ">
-
-
-        <input
-
-          value={search}
-
-          onChange={(e)=>setSearch(e.target.value)}
-
-          placeholder="Search users..."
-
-          className="
-          w-full
-          border
-          border-gray-300
-          rounded-lg
-          px-4
-          py-3
-          text-gray-900
-          placeholder-gray-500
-          outline-none
-          "
-
-        />
-
-
-      </div>
-
-
-
-
-
-
-      {/* Table */}
-
-
-      <div className="
-      bg-white
-      rounded-xl
-      shadow
-      overflow-hidden
-      border
-      border-gray-200
-      ">
-
-
-        <table className="w-full">
-
-
-          <thead className="
-          bg-gray-200
-          text-gray-700
-          ">
-
-
-            <tr>
-
-
-              <th className="p-4 text-left font-semibold">
-                Name
-              </th>
-
-
-              <th className="p-4 text-left font-semibold">
-                Email
-              </th>
-
-
-              <th className="p-4 font-semibold">
-                Role
-              </th>
-
-
-              <th className="p-4 font-semibold">
-                Status
-              </th>
-
-
-              <th className="p-4 font-semibold">
-                Change Role
-              </th>
-
-
-            </tr>
-
-
-          </thead>
-
-
-
-          <tbody>
-
-
-          {
-            filteredUsers.map((user)=>(
-
-
-              <tr
-              key={user.id}
-              className="
-              border-t
-              border-gray-200
-              hover:bg-gray-50
-              "
-              >
-
-
-                <td className="p-4">
-
-
-                  <div className="
-                  flex
-                  items-center
-                  gap-3
-                  ">
-
-
-                    <div className="
-                    w-10
-                    h-10
-                    rounded-full
-                    bg-blue-100
-                    flex
-                    items-center
-                    justify-center
-                    text-blue-700
-                    font-bold
-                    ">
-                      {user.name.charAt(0)}
-                    </div>
-
-
-                    <span className="
-                    font-semibold
-                    text-gray-900
-                    ">
-                      {user.name}
-                    </span>
-
-
-                  </div>
-
-
-                </td>
-
-
-
-
-                <td className="
-                p-4
-                text-gray-600
-                ">
-                  {user.email}
-                </td>
-
-
-
-
-
-                <td className="p-4 text-center">
-
-                  <RoleBadge role={user.role}/>
-
-                </td>
-
-
-
-
-                <td className="p-4 text-center">
-
-                  <StatusBadge status={user.status}/>
-
-                </td>
-
-
-
-
-
-                <td className="p-4 text-center">
-
-
-                  <select
-                  className="
-                  border
-                  border-gray-300
-                  rounded-lg
-                  px-3
-                  py-2
-                  text-gray-900
-                  bg-white
-                  "
-                  defaultValue={user.role}
-                  >
-
-                    <option>
-                      Passenger
-                    </option>
-
-                    <option>
-                      Driver
-                    </option>
-
-                    <option>
-                      Admin
-                    </option>
-
-
-                  </select>
-
-
-                </td>
-
-
-
-              </tr>
-
-
-            ))
-          }
-
-
-          </tbody>
-
-
-
-        </table>
-
-
-      </div>
-
-
-
-    </div>
-
-  );
+  const [users, setUsers] = useState<User[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [currentUserRole, setCurrentUserRole] = useState<string>("admin");
+
+  const loadUsers = async () => {
+    try {
+      const response = await apiClient.get("/admin/users");
+      setUsers(Array.isArray(response.data) ? response.data : []);
+    } catch (error) {
+      console.error("Unable to load admin users:", error);
+      setUsers([]);
+    } finally { setLoading(false); }
+  };
+
+  useEffect(() => {
+    const token = localStorage.getItem("syncrogo_token") || localStorage.getItem("token");
+    if (token) {
+      getCurrentUser(token).then((u) => {
+        if (u?.role) setCurrentUserRole(u.role.toLowerCase());
+      }).catch(() => {});
+    }
+    loadUsers();
+  }, []);
+  const filteredUsers = useMemo(() => users.filter((user) =>
+    `${user.name || user.full_name || ""} ${user.email}`.toLowerCase().includes(search.toLowerCase())
+  ), [users, search]);
+
+  const changeRole = async (id: number, role: string) => {
+    await apiClient.patch(`/admin/users/${id}/role`, undefined, { params: { new_role: role } });
+    await loadUsers();
+  };
+
+  const deleteUser = async (user: User) => {
+    const name = user.name || user.full_name || user.email;
+    if (!window.confirm(`Delete the account for ${name}? This cannot be undone.`)) return;
+    try {
+      await apiClient.delete(`/admin/users/${user.id}`);
+      await loadUsers();
+    } catch (error: any) {
+      window.alert(error.response?.data?.detail || "Unable to delete this account.");
+    }
+  };
+
+  const isEmployer = currentUserRole === "employer";
+
+  return <div className="min-h-screen bg-gray-100 p-6">
+    <div className="mb-6"><h1 className="text-2xl sm:text-4xl font-bold text-gray-900">User Management</h1><p className="text-gray-600 mt-2">Manage users, roles and account status</p></div>
+    {loading && <p className="mb-4 text-gray-600">Loading users...</p>}
+    <div className="bg-white p-4 rounded-xl shadow mb-5"><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search users..." className="w-full border border-gray-300 rounded-lg px-4 py-3 text-gray-900" /></div>
+    <div className="bg-white rounded-xl shadow overflow-x-auto border border-gray-200"><table className="min-w-[900px] w-full"><thead className="bg-gray-200 text-gray-700"><tr><th className="p-4 text-left">Name</th><th className="p-4 text-left">Email</th><th className="p-4">Role</th><th className="p-4">Status</th><th className="p-4">Change Role</th><th className="p-4">Actions</th></tr></thead><tbody>
+      {filteredUsers.map((user) => { const name = user.name || user.full_name || "Unnamed user"; const role = user.role.toLowerCase(); return <tr key={user.id} className="border-t border-gray-200 hover:bg-gray-50"><td className="p-4 font-semibold text-gray-900">{name}</td><td className="p-4 text-gray-600">{user.email}</td><td className="p-4 text-center"><RoleBadge role={role} /></td><td className="p-4 text-center"><StatusBadge status={user.is_online ? "Online" : "Offline"} /></td><td className="p-4 text-center"><select value={role} disabled={isEmployer} title={isEmployer ? "Employers cannot change user roles" : "Change user role"} onChange={(e) => changeRole(user.id, e.target.value)} className={`border border-gray-300 rounded-lg px-3 py-2 text-gray-900 bg-white ${isEmployer ? "opacity-50 cursor-not-allowed" : ""}`}><option value="passenger">Passenger</option><option value="driver">Driver</option><option value="employer">Employer</option><option value="admin">Admin</option></select></td><td className="p-4 text-center"><button type="button" disabled={isEmployer} title={isEmployer ? "Employers cannot delete accounts" : "Delete account"} onClick={() => deleteUser(user)} className={`inline-flex items-center gap-2 rounded-lg bg-red-600 px-3 py-2 text-white hover:bg-red-700 ${isEmployer ? "opacity-50 cursor-not-allowed" : ""}`}><Trash2 size={16} /> Delete</button></td></tr>; })}
+    </tbody></table></div>
+  </div>;
 }
 
-
-
-
-function StatCard({
-title,
-value
-}:any){
-
-return (
-
-<div className="
-bg-white
-rounded-xl
-shadow
-p-5
-border
-border-gray-200
-">
-
-<p className="text-gray-600">
-{title}
-</p>
-
-<h2 className="
-text-3xl
-font-bold
-text-gray-900
-mt-2
-">
-{value}
-</h2>
-
-
-</div>
-
-);
-
+function RoleBadge({ role }: { role: string }) {
+  const label = role.charAt(0).toUpperCase() + role.slice(1);
+  let colorClass = "bg-blue-100 text-blue-700";
+  if (role === "admin") colorClass = "bg-red-100 text-red-700";
+  else if (role === "employer") colorClass = "bg-purple-100 text-purple-700";
+  else if (role === "driver") colorClass = "bg-emerald-100 text-emerald-700";
+  return <span className={`px-4 py-1 rounded-full text-sm font-semibold ${colorClass}`}>{label}</span>;
 }
-
-
-
-
-function RoleBadge({
-role
-}:any){
-
-
-const styles:any={
-
-Passenger:
-"bg-blue-100 text-blue-700",
-
-Driver:
-"bg-green-100 text-green-700",
-
-Admin:
-"bg-red-100 text-red-700"
-
-};
-
-
-return (
-
-<span
-className={`
-px-4
-py-1
-rounded-full
-text-sm
-font-semibold
-shadow-sm
-${styles[role]}
-`}
->
-
-{role}
-
-</span>
-
-);
-
-}
-
-
-
-
-function StatusBadge({
-status
-}:any){
-
-
-return (
-
-<span
-className={`
-px-4
-py-1
-rounded-full
-text-sm
-font-semibold
-
-${
-status==="Online"
-?
-"bg-green-100 text-green-700"
-:
-"bg-gray-100 text-gray-700"
-}
-
-`}
->
-
-{status==="Online" ? "🟢 Online" : "⚪ Offline"}
-
-</span>
-
-);
-
-}
+function StatusBadge({ status }: { status: string }) { return <span className={`px-4 py-1 rounded-full text-sm font-semibold ${status === "Online" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-700"}`}>{status}</span>; }

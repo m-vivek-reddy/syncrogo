@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 from typing import List
-from app.db.database import get_db
+from app.db.session import get_db
 from app.models.message import Message
 from app.models.ride import Ride
 from app.models.booking import Booking
@@ -12,7 +12,6 @@ from app.routes.auth import get_current_user
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
 class MessageCreate(BaseModel):
-    sender_id: int  # 👈 Accept sender_id dynamically
     receiver_id: int
     ride_id: int
     content: str = Field(min_length=1, max_length=2000)
@@ -22,11 +21,11 @@ def verify_conversation_access(ride_id: int, current_user: User, recipient_id: i
     if not ride:
         raise HTTPException(status_code=404, detail="Ride not found")
     is_driver = ride.driver_id == current_user.id
-    is_booked_passenger = db.query(Booking).filter(Booking.ride_id == ride_id, Booking.customer_id == current_user.id, Booking.status != "cancelled").first()
+    is_booked_passenger = db.query(Booking).filter(Booking.ride_id == ride_id, Booking.passenger_id == current_user.id, Booking.status != "CANCELLED").first()
     if not is_driver and not is_booked_passenger:
         raise HTTPException(status_code=403, detail="You are not a participant in this ride")
     if is_driver:
-        if not db.query(Booking).filter(Booking.ride_id == ride_id, Booking.customer_id == recipient_id, Booking.status != "cancelled").first():
+        if not db.query(Booking).filter(Booking.ride_id == ride_id, Booking.passenger_id == recipient_id, Booking.status != "CANCELLED").first():
             raise HTTPException(status_code=403, detail="Recipient is not booked on this ride")
     elif recipient_id != ride.driver_id:
         raise HTTPException(status_code=403, detail="Passengers can only message the ride driver")
@@ -34,32 +33,32 @@ def verify_conversation_access(ride_id: int, current_user: User, recipient_id: i
 @router.post("/send", status_code=status.HTTP_201_CREATED)
 def send_message(msg_data: MessageCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     try:
-        # 🔍 If you want to test easily, you can explicitly determine the sender 
-        # or use the sender_id coming from the frontend payload.
-        # To test Telegram-style left/right flipping, ensure your frontend 
-        (
-            # passes the correct user ID of whoever is currently tapping "Send".
-        )
-        
         verify_conversation_access(msg_data.ride_id, current_user, msg_data.receiver_id, db)
         new_msg = Message(
             sender_id=current_user.id,
             receiver_id=msg_data.receiver_id,
             ride_id=msg_data.ride_id,
-            message_text=msg_data.content  
+            message_text=msg_data.content,
         )
         db.add(new_msg)
         db.commit()
         db.refresh(new_msg)
-        
+
         return {
-            "success": True, 
+            "success": True,
             "data": {
                 "id": new_msg.id,
                 "text": new_msg.message_text,
-                "sender_id": new_msg.sender_id
-            }
+                "sender_id": new_msg.sender_id,
+                "receiver_id": new_msg.receiver_id,
+                "ride_id": new_msg.ride_id,
+                "created_at": new_msg.created_at.isoformat() if new_msg.created_at else None,
+                "timestamp": new_msg.created_at.strftime("%I:%M %p") if new_msg.created_at else "Now",
+            },
         }
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
@@ -83,11 +82,17 @@ def get_chat_history(
             {
                 "id": str(m.id),
                 "text": m.message_text,
-                "sender": "me" if m.sender_id == current_user.id else "them", 
-                "timestamp": m.created_at.strftime("%I:%M %p") if m.created_at else "Now"
+                "sender": "me" if m.sender_id == current_user.id else "them",
+                "sender_id": m.sender_id,
+                "receiver_id": m.receiver_id,
+                "ride_id": m.ride_id,
+                "created_at": m.created_at.isoformat() if m.created_at else None,
+                "timestamp": m.created_at.strftime("%I:%M %p") if m.created_at else "Now",
             }
             for m in messages
         ]
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"GET Error: {e}") # This helps debug in your terminal
         raise HTTPException(status_code=500, detail=str(e))
@@ -122,7 +127,7 @@ def get_conversations(db: Session = Depends(get_db), current_user: User = Depend
             })
             seen.add(key)
     passenger_bookings = db.query(Booking).filter(
-        Booking.customer_id == current_user.id, Booking.status != "cancelled"
+        Booking.passenger_id == current_user.id, Booking.status != "CANCELLED"
     ).all()
     for booking in passenger_bookings:
         ride = db.query(Ride).filter(Ride.id == booking.ride_id).first()
@@ -136,13 +141,13 @@ def get_conversations(db: Session = Depends(get_db), current_user: User = Depend
             conversations.append({"rideId": ride.id, "receiverId": driver.id, "name": driver.full_name or driver.email, "email": driver.email, "role": driver.role, "phone": driver.phone or "", "lastMessage": "No messages yet", "time": "", "unread": False})
             seen.add(key)
     driver_bookings = db.query(Booking).join(Ride, Booking.ride_id == Ride.id).filter(
-        Ride.driver_id == current_user.id, Booking.status != "cancelled"
+        Ride.driver_id == current_user.id, Booking.status != "CANCELLED"
     ).all()
     for booking in driver_bookings:
-        key = (booking.ride_id, booking.customer_id)
+        key = (booking.ride_id, booking.passenger_id)
         if key in seen:
             continue
-        passenger = db.query(User).filter(User.id == booking.customer_id).first()
+        passenger = db.query(User).filter(User.id == booking.passenger_id).first()
         if passenger:
             conversations.append({"rideId": booking.ride_id, "receiverId": passenger.id, "name": passenger.full_name or passenger.email, "email": passenger.email, "role": passenger.role, "phone": passenger.phone or "", "lastMessage": "No messages yet", "time": "", "unread": False})
             seen.add(key)

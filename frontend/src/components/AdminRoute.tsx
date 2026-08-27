@@ -1,6 +1,6 @@
 import { Navigate, Outlet } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { apiClient } from "../api/client";
+import { getCurrentUser } from "../api/currentUser";
 
 
 export default function AdminRoute(){
@@ -11,36 +11,46 @@ export default function AdminRoute(){
 
     useEffect(()=>{
 
+        let active = true;
+
         async function checkAdmin(){
 
             try{
 
-                const response = await apiClient.get(
-                    "/api/v1/users/me"
-                );
+                const token = localStorage.getItem("syncrogo_token") || localStorage.getItem("token");
+                if (!token) {
+                    throw new Error("No authentication token");
+                }
+
+                const currentUser = await getCurrentUser(token);
 
 
-                console.log("CURRENT USER:", response.data);
-
-
-                if(response.data.role === "admin"){
-                    setIsAdmin(true);
+                if(active){
+                    setIsAdmin(currentUser.role === "admin" || currentUser.role === "employer");
                 }
 
 
-            }catch(error){
+            }catch{
 
-                console.log(error);
+                if(active){
+                    setIsAdmin(false);
+                }
 
             }
 
 
-            setLoading(false);
+            if(active){
+                setLoading(false);
+            }
 
         }
 
 
         checkAdmin();
+
+        return () => {
+            active = false;
+        };
 
 
     },[]);

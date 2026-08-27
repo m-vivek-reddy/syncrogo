@@ -1,13 +1,14 @@
+import { API_BASE_URL } from '../api/config';
+
 interface PaymentButtonProps {
   rideId: number;
-  driverId: number;
+  bookingId: number;
   finalFare: number;
   passengerEmail: string;
+  onPaid?: (paymentId: number) => void;
 }
 
-const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
-
-export function PaymentButton({ rideId, driverId, finalFare, passengerEmail }: PaymentButtonProps) {
+export function PaymentButton({ rideId, bookingId, finalFare, passengerEmail, onPaid }: PaymentButtonProps) {
   const loadRazorpayScript = () => {
     return new Promise<boolean>((resolve) => {
       const existingScript = document.querySelector('script[src="https://checkout.razorpay.com/v1/checkout.js"]');
@@ -25,6 +26,20 @@ export function PaymentButton({ rideId, driverId, finalFare, passengerEmail }: P
   };
 
   const handlePayment = async () => {
+    const orderResponse = await fetch(`${API_BASE_URL}/payments/create-order`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${localStorage.getItem('syncrogo_token') ?? ''}`,
+      },
+      body: JSON.stringify({ booking_id: bookingId }),
+    });
+    const order = await orderResponse.json();
+    if (!orderResponse.ok) {
+      alert(order.detail || 'Payment is not available for this trip.');
+      return;
+    }
+
     const res = await loadRazorpayScript();
     if (!res) {
       alert('Razorpay SDK failed to load. Check your internet connection.');
@@ -32,28 +47,33 @@ export function PaymentButton({ rideId, driverId, finalFare, passengerEmail }: P
     }
 
     const options = {
-      key: import.meta.env.VITE_RAZORPAY_KEY_ID ?? 'YOUR_RAZORPAY_KEY_ID',
-      amount: Math.round(finalFare * 100),
-      currency: 'INR',
+      key: order.key_id,
+      amount: order.amount,
+      currency: order.currency,
       name: 'SyncroGo Ride Payment',
-      description: `Payment for Ride #${rideId}`,
+      description: `Payment after completion of Ride #${rideId}`,
+      order_id: order.order_id,
       handler: async function (response: any) {
         try {
           const verifyRes = await fetch(`${API_BASE_URL}/payments/verify-payment`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${localStorage.getItem('syncrogo_token') ?? ''}`,
+            },
             body: JSON.stringify({
-              razorpay_order_id: response.razorpay_order_id || 'ord_mock',
+              razorpay_order_id: response.razorpay_order_id,
               razorpay_payment_id: response.razorpay_payment_id,
               razorpay_signature: response.razorpay_signature,
-              ride_id: rideId,
-              driver_id: driverId,
+              booking_id: bookingId,
+              idempotency_key: response.razorpay_payment_id,
             }),
           });
 
           const result = await verifyRes.json();
           if (verifyRes.ok) {
             alert('Payment successful! Driver wallet updated.');
+            onPaid?.(result.payment_id);
           } else {
             alert(result.detail || 'Payment verification failed.');
           }

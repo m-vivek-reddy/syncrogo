@@ -12,19 +12,21 @@ interface ProfileHeaderProps {
   verified?: boolean;
   avatar?: string;
   onEditAvatar?: () => void;
+  avatarDisabled?: boolean;
 }
 
 export default function ProfileHeader({
   name,
   email,
   rating,
-  memberSince = "2026",
+  memberSince = new Date().getFullYear().toString(),
   location = "Hyderabad",
   completedTrips = 0,
   isDriver = false,
   verified = false,
   avatar,
   onEditAvatar,
+  avatarDisabled = false,
 }: ProfileHeaderProps) {
   return (
     <div className="bg-white rounded-b-3xl shadow-sm">
@@ -41,6 +43,7 @@ export default function ProfileHeader({
             image={avatar}
             verified={verified}
             onEdit={onEditAvatar}
+            disabled={avatarDisabled}
           />
 
           <h1 className="mt-4 text-2xl font-bold text-slate-900">
@@ -61,7 +64,7 @@ export default function ProfileHeader({
               />
 
               <span className="font-semibold">
-                {rating.toFixed(1)}
+                {rating > 0 ? rating.toFixed(1) : "No ratings"}
               </span>
             </div>
 
@@ -112,7 +115,7 @@ export default function ProfileHeader({
           <div className="bg-slate-50 rounded-2xl p-4 text-center">
 
             <h2 className="text-2xl font-bold text-green-600">
-              {rating.toFixed(1)}
+              {rating > 0 ? rating.toFixed(1) : "N/A"}
             </h2>
 
             <p className="text-xs text-gray-500 mt-1">
@@ -124,11 +127,11 @@ export default function ProfileHeader({
           <div className="bg-slate-50 rounded-2xl p-4 text-center">
 
             <h2 className="text-2xl font-bold text-purple-600">
-              100%
+              {verified ? "Verified" : "Pending"}
             </h2>
 
             <p className="text-xs text-gray-500 mt-1">
-              Verified
+              Status
             </p>
 
           </div>

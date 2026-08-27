@@ -1,3 +1,5 @@
+import { useNavigate } from "react-router-dom";
+
 interface Document {
   id: number;
   driver: string;
@@ -15,6 +17,8 @@ interface DocumentTableProps {
 export default function DocumentTable({
   documents,
 }: DocumentTableProps) {
+  const navigate = useNavigate();
+
   return (
     <div className="bg-white rounded-2xl shadow-md border border-gray-200 p-6">
 
@@ -32,6 +36,8 @@ export default function DocumentTable({
         </div>
 
         <button
+          type="button"
+          onClick={() => navigate("/admin/documents")}
           className="
             bg-blue-600
             hover:bg-blue-700

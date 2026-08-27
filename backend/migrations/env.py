@@ -20,7 +20,7 @@ from app.models.message import Message
 from app.models.rating import Rating
 from app.models.notification import Notification
 from app.models.report import Report
-from app.models.payment import PaymentMethod
+from app.models.payment import PaymentMethod, Payment
 from app.models.document import Document
 
 load_dotenv()

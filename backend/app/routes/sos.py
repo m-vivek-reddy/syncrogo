@@ -3,9 +3,11 @@ from sqlalchemy.orm import Session
 
 from pydantic import BaseModel
 
-from app.db.database import get_db
+from app.db.session import get_db
 from app.models.sos import SOSAlert
 from app.models.user import User
+from app.routes.auth import get_current_user
+from app.routes.admin import verify_admin_role
 
 router = APIRouter(
     prefix="/api/v1/sos",
@@ -18,7 +20,6 @@ router = APIRouter(
 # ==========================================================
 
 class SOSTriggerSchema(BaseModel):
-    user_id: int
     ride_id: int | None = None
     latitude: float
     longitude: float
@@ -31,22 +32,15 @@ class SOSTriggerSchema(BaseModel):
 @router.post("/trigger", status_code=status.HTTP_201_CREATED)
 def trigger_sos(
     payload: SOSTriggerSchema,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Trigger an emergency SOS alert.
     """
 
-    user = db.query(User).filter(User.id == payload.user_id).first()
-
-    if not user:
-        raise HTTPException(
-            status_code=404,
-            detail="User not found."
-        )
-
     alert = SOSAlert(
-        user_id=payload.user_id,
+        user_id=current_user.id,
         ride_id=payload.ride_id,
         latitude=payload.latitude,
         longitude=payload.longitude,
@@ -71,7 +65,8 @@ def trigger_sos(
 
 @router.get("/active-alerts")
 def get_active_alerts(
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    admin: User = Depends(verify_admin_role),
 ):
     """
     Returns every unresolved SOS alert.
@@ -108,7 +103,8 @@ def get_active_alerts(
 @router.get("/{alert_id}")
 def get_alert(
     alert_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Get a single SOS alert.
@@ -125,6 +121,8 @@ def get_alert(
             status_code=404,
             detail="SOS alert not found."
         )
+    if alert.user_id != current_user.id and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Not authorized to view this alert.")
 
     return {
         "alert_id": alert.id,
@@ -144,7 +142,8 @@ def get_alert(
 @router.put("/{alert_id}/resolve")
 def resolve_alert(
     alert_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    admin: User = Depends(verify_admin_role),
 ):
     """
     Resolve an active SOS alert.
@@ -187,7 +186,8 @@ def resolve_alert(
 
 @router.get("/history/all")
 def alert_history(
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    admin: User = Depends(verify_admin_role),
 ):
     """
     Returns all SOS alerts.

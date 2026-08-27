@@ -1,53 +1,51 @@
-import { useState } from "react";
-
-const documents = [
-  {
-    id: 1,
-    driver: "Rahul Kumar",
-    vehicle: "TS09 AB 1234",
-    license: "Uploaded",
-    rc: "Uploaded",
-    insurance: "Pending",
-    aadhaar: "Uploaded",
-    status: "Pending",
-  },
-  {
-    id: 2,
-    driver: "Priya Sharma",
-    vehicle: "TS08 CD 5678",
-    license: "Uploaded",
-    rc: "Uploaded",
-    insurance: "Uploaded",
-    aadhaar: "Uploaded",
-    status: "Approved",
-  },
-  {
-    id: 3,
-    driver: "Arjun Reddy",
-    vehicle: "TS07 EF 9876",
-    license: "Missing",
-    rc: "Uploaded",
-    insurance: "Uploaded",
-    aadhaar: "Uploaded",
-    status: "Rejected",
-  },
-];
+import { useCallback, useEffect, useState } from "react";
+import { getDocuments, updateDocumentStatus } from "../services/adminApi";
 
 export default function AdminDocuments() {
+  const [documents, setDocuments] = useState<any[]>([]);
   const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  const fetchDocs = useCallback(async () => {
+    try {
+      setLoading(true);
+      const res = await getDocuments();
+      const list = Array.isArray(res.data) ? res.data : Array.isArray(res) ? res : [];
+      setDocuments(list);
+    } catch {
+      setDocuments([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchDocs();
+  }, [fetchDocs]);
+
+  const handleUpdate = async (id: number, status: string) => {
+    try {
+      await updateDocumentStatus(id, status);
+      fetchDocs();
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   const filtered = documents.filter((doc) =>
-    doc.driver.toLowerCase().includes(search.toLowerCase())
+    (doc.driver_name || doc.user_name || doc.document_type || "")
+      .toLowerCase()
+      .includes(search.toLowerCase())
   );
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-100 via-blue-50 to-slate-100 p-6">
+    <div className="min-h-screen bg-gradient-to-br from-slate-100 via-blue-50 to-slate-100">
 
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
 
         <div>
-          <h1 className="text-4xl font-bold text-slate-900">
+          <h1 className="text-2xl sm:text-4xl font-bold text-slate-900">
             Driver Document Verification
           </h1>
 
@@ -83,25 +81,25 @@ export default function AdminDocuments() {
 
         <Card
           title="Pending"
-          value="25"
+          value={documents.filter((d) => d.status === "pending").length.toString()}
           color="text-amber-500"
         />
 
         <Card
           title="Approved"
-          value="310"
+          value={documents.filter((d) => d.status === "verified" || d.status === "Approved").length.toString()}
           color="text-emerald-500"
         />
 
         <Card
           title="Rejected"
-          value="18"
+          value={documents.filter((d) => d.status === "rejected").length.toString()}
           color="text-red-500"
         />
 
         <Card
-          title="Expired"
-          value="12"
+          title="Total Submitted"
+          value={documents.length.toString()}
           color="text-slate-500"
         />
 
@@ -166,69 +164,66 @@ export default function AdminDocuments() {
 
           <tbody>
 
-            {filtered.map((doc) => (
-
-              <tr
-                key={doc.id}
-                className="border-b border-slate-200 hover:bg-blue-50 transition"
-              >
-
-                <td className="p-4 font-semibold text-slate-800">
-                  {doc.driver}
+            {loading ? (
+              <tr>
+                <td colSpan={5} className="p-8 text-center text-slate-500 font-medium">
+                  Loading submitted documents...
                 </td>
-
-                <td className="text-center text-slate-700">
-                  {doc.vehicle}
-                </td>
-
-                <td className="text-center">
-                  {doc.license}
-                </td>
-
-                <td className="text-center">
-                  {doc.rc}
-                </td>
-
-                <td className="text-center">
-                  {doc.insurance}
-                </td>
-
-                <td className="text-center">
-                  {doc.aadhaar}
-                </td>
-
-                <td className="text-center">
-
-                  <Status status={doc.status} />
-
-                </td>
-
-                <td className="text-center">
-
-                  <button
-                    className="
-                    px-4
-                    py-2
-                    rounded-lg
-                    text-white
-                    font-medium
-                    bg-gradient-to-r
-                    from-blue-600
-                    to-cyan-500
-                    hover:from-blue-700
-                    hover:to-cyan-600
-                    transition
-                    shadow
-                    "
-                  >
-                    Review
-                  </button>
-
-                </td>
-
               </tr>
+            ) : filtered.length === 0 ? (
+              <tr>
+                <td colSpan={5} className="p-8 text-center text-slate-500 font-medium">
+                  No documents found.
+                </td>
+              </tr>
+            ) : (
+              filtered.map((doc) => (
 
-            ))}
+                <tr
+                  key={doc.id}
+                  className="border-b border-slate-200 hover:bg-blue-50 transition"
+                >
+
+                  <td className="p-4 font-semibold text-slate-800">
+                    {doc.driver_name || doc.user_name || "User #" + (doc.user_id || doc.id)}
+                  </td>
+
+                  <td className="text-center text-slate-700 font-bold uppercase">
+                    {doc.document_type || "Document"}
+                  </td>
+
+                  <td className="text-center text-slate-600 text-sm">
+                    {doc.doc_number || (doc.file_url ? "File Attached" : "On File")}
+                  </td>
+
+                  <td className="text-center">
+
+                    <Status status={doc.status || "pending"} />
+
+                  </td>
+
+                  <td className="text-center space-x-2 p-4">
+
+                    <button
+                      onClick={() => handleUpdate(doc.id, "verified")}
+                      className="px-3 py-1.5 rounded-lg text-white font-medium text-xs bg-emerald-600 hover:bg-emerald-700 transition"
+                    >
+                      Approve
+                    </button>
+
+                    <button
+                      onClick={() => handleUpdate(doc.id, "rejected")}
+                      className="px-3 py-1.5 rounded-lg text-white font-medium text-xs bg-red-600 hover:bg-red-700 transition"
+                    >
+                      Reject
+                    </button>
+
+                  </td>
+
+                </tr>
+
+              ))
+            )}
 
           </tbody>
 

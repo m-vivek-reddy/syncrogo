@@ -135,17 +135,18 @@ export default function LocationFlow({ onRouteConfirmed }: LocationFlowProps) {
   };
 
   const handleSelectPlace = (place: PlaceOption | NominatimResult) => {
-    const selected = {
-      address:
-        'display_name' in place
-          ? place.display_name
-          : place.title
-          ? place.title
-          : place.address,
-      lat: Number('lat' in place ? place.lat : place.lat),
-      lng: Number('lon' in place ? place.lon : place.lng),
-    };
+  const selected = {
+    address:
+      "display_name" in place
+        ? place.display_name
+        : place.title
+        ? place.title
+        : place.address,
 
+    lat: Number(place.lat),
+
+    lng: Number("lon" in place ? place.lon : place.lng),
+  };
     if (activeSearchType === 'pickup') {
       setPickup(selected);
       setPickupLocation([selected.lat, selected.lng], selected.address);
@@ -159,17 +160,43 @@ export default function LocationFlow({ onRouteConfirmed }: LocationFlowProps) {
     setSearchResults([]);
   };
 
+  const [pinnedAddress, setPinnedAddress] = useState('Road No 36, Jubilee Hills, Hyderabad');
+  const [pinnedCoords, setPinnedCoords] = useState<[number, number]>([17.436, 78.408]);
+  const [geocoding, setGeocoding] = useState(false);
+
+  const fetchPinAddress = async (lat: number, lng: number) => {
+    setGeocoding(true);
+    try {
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`
+      );
+      if (response.ok) {
+        const data = await response.json();
+        const display = data.display_name || `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+        setPinnedAddress(display);
+      } else {
+        setPinnedAddress(`${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+      }
+    } catch {
+      setPinnedAddress(`${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+    } finally {
+      setGeocoding(false);
+    }
+  };
+
   const handleConfirmPinpoint = () => {
     const pinnedLocation = {
-      address: 'Road No 36, Jubilee Hills (Pinned)',
-      lat: 17.436,
-      lng: 78.408,
+      address: pinnedAddress || `${pinnedCoords[0].toFixed(5)}, ${pinnedCoords[1].toFixed(5)}`,
+      lat: pinnedCoords[0],
+      lng: pinnedCoords[1],
     };
 
     if (activeSearchType === 'pickup') {
       setPickup(pinnedLocation);
+      setPickupLocation([pinnedLocation.lat, pinnedLocation.lng], pinnedLocation.address);
     } else {
       setDestination(pinnedLocation);
+      setDestinationLocation([pinnedLocation.lat, pinnedLocation.lng], pinnedLocation.address);
     }
 
     setStep('main');
@@ -290,31 +317,54 @@ export default function LocationFlow({ onRouteConfirmed }: LocationFlowProps) {
   if (step === 'map_pinpoint') {
     return (
       <div className="max-w-md mx-auto bg-gray-900 min-h-screen flex flex-col justify-between font-sans relative">
-        <div className="absolute inset-0 [&>div]:h-full [&>div]:rounded-none [&>div]:border-0"><RideMap /></div>
+        <div className="absolute inset-0 [&>div]:h-full [&>div]:rounded-none [&>div]:border-0">
+          <RideMap />
+        </div>
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-          <div className="absolute text-center">
+          <div className="absolute text-center z-20">
             <span className="text-4xl animate-bounce">📍</span>
-            <p className="text-xs text-white bg-black/60 px-3 py-1 rounded-full mt-2">Move map to adjust location</p>
+            <p className="text-xs text-white bg-black/75 px-3 py-1.5 rounded-full mt-2 font-medium shadow-lg">
+              Adjust map pin point
+            </p>
           </div>
         </div>
 
-        <div className="p-4 z-10">
+        <div className="p-4 z-10 flex justify-between items-center">
           <button
             onClick={() => setStep(activeSearchType === 'destination' ? 'search_dest' : 'search_pickup')}
-            className="bg-white text-gray-800 font-bold px-4 py-2 rounded-xl shadow-lg"
+            className="bg-white text-gray-800 font-bold px-4 py-2 rounded-xl shadow-lg hover:bg-gray-100"
           >
             ← Back
+          </button>
+          <button
+            onClick={() => {
+              const lat = 17.436 + (Math.random() - 0.5) * 0.01;
+              const lng = 78.408 + (Math.random() - 0.5) * 0.01;
+              setPinnedCoords([lat, lng]);
+              void fetchPinAddress(lat, lng);
+            }}
+            className="bg-blue-600 text-white font-bold px-3 py-2 rounded-xl shadow-lg text-xs"
+          >
+            🎯 Adjust Pin
           </button>
         </div>
 
         <div className="bg-white p-6 rounded-t-3xl z-10 shadow-2xl space-y-4">
           <div>
-            <p className="text-xs font-bold text-gray-400 uppercase">Selected Location</p>
-            <p className="text-base font-bold text-gray-900 mt-1">Road No 36, Jubilee Hills</p>
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">
+              Selected {activeSearchType === 'pickup' ? 'Pickup' : 'Destination'} Pinpoint
+            </p>
+            <p className="text-sm font-bold text-gray-900 mt-1 line-clamp-2">
+              {geocoding ? "Finding address..." : pinnedAddress}
+            </p>
+            <p className="text-xs text-gray-400 font-mono mt-1">
+              {pinnedCoords[0].toFixed(5)}, {pinnedCoords[1].toFixed(5)}
+            </p>
           </div>
           <button
             onClick={handleConfirmPinpoint}
-            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3.5 rounded-2xl shadow-lg transition"
+            disabled={geocoding}
+            className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3.5 rounded-2xl shadow-lg transition disabled:opacity-60"
           >
             Confirm Pin Location
           </button>

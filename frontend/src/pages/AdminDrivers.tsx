@@ -1,51 +1,26 @@
-import { useState } from "react";
-
-
-const drivers = [
-  {
-    id:1,
-    name:"Rahul Kumar",
-    vehicle:"Swift Dzire",
-    phone:"9876543210",
-    rating:"4.8",
-    status:"Online",
-    documents:"Verified",
-    earnings:"₹18,250"
-  },
-  {
-    id:2,
-    name:"Priya Sharma",
-    vehicle:"WagonR",
-    phone:"9123456780",
-    rating:"4.9",
-    status:"Offline",
-    documents:"Pending",
-    earnings:"₹15,100"
-  },
-  {
-    id:3,
-    name:"Arjun Reddy",
-    vehicle:"Nexon",
-    phone:"9988776655",
-    rating:"4.7",
-    status:"Busy",
-    documents:"Verified",
-    earnings:"₹21,900"
-  }
-];
-
-
+import { useEffect, useState } from "react";
+import { getDrivers } from "../services/adminApi";
 
 export default function AdminDrivers(){
+  const [drivers, setDrivers] = useState<any[]>([]);
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
 
-const [search,setSearch]=useState("");
+  useEffect(() => {
+    getDrivers()
+      .then((res) => {
+        const list = Array.isArray(res.data) ? res.data : Array.isArray(res) ? res : [];
+        setDrivers(list);
+      })
+      .catch(() => setDrivers([]))
+      .finally(() => setLoading(false));
+  }, []);
 
-
-const filteredDrivers = drivers.filter((driver)=>
-driver.name
-.toLowerCase()
-.includes(search.toLowerCase())
-);
+  const filteredDrivers = drivers.filter((driver) =>
+    (driver.name || driver.full_name || "")
+      .toLowerCase()
+      .includes(search.toLowerCase())
+  );
 
 
 
@@ -62,8 +37,9 @@ p-6
 
 <div className="
 flex
+flex-col sm:flex-row
 justify-between
-items-center
+items-start sm:items-center
 mb-6
 ">
 
@@ -71,7 +47,7 @@ mb-6
 <div>
 
 <h1 className="
-text-4xl
+text-2xl sm:text-4xl
 font-bold
 text-gray-900
 ">
@@ -124,36 +100,36 @@ font-semibold
 
 <div className="
 grid
-grid-cols-4
-gap-5
+grid-cols-1 sm:grid-cols-2 xl:grid-cols-4
+gap-4 sm:gap-5
 mb-6
 ">
 
 
 <Card
 title="Total Drivers"
-value="125"
+value={drivers.length.toString()}
 color="text-blue-600"
 />
 
 
 <Card
 title="Online"
-value="42"
+value={drivers.filter((d) => d.is_online).length.toString()}
 color="text-green-600"
 />
 
 
 <Card
 title="Offline"
-value="73"
+value={drivers.filter((d) => !d.is_online).length.toString()}
 color="text-gray-600"
 />
 
 
 <Card
-title="Pending Verification"
-value="10"
+title="Verified"
+value={drivers.filter((d) => d.is_verified).length.toString()}
 color="text-orange-600"
 />
 
@@ -213,13 +189,13 @@ placeholder-gray-500
 bg-white
 rounded-xl
 shadow
-overflow-hidden
+overflow-x-auto
 border
 border-gray-200
 ">
 
 
-<table className="w-full">
+<table className="min-w-[900px] w-full">
 
 
 <thead className="
@@ -281,7 +257,19 @@ Actions
 <tbody>
 
 
-{
+{loading ? (
+  <tr>
+    <td colSpan={8} className="p-8 text-center text-gray-500 font-medium">
+      Loading driver accounts...
+    </td>
+  </tr>
+) : filteredDrivers.length === 0 ? (
+  <tr>
+    <td colSpan={8} className="p-8 text-center text-gray-500 font-medium">
+      No drivers found.
+    </td>
+  </tr>
+) : (
 filteredDrivers.map((driver)=>(
 
 
@@ -316,7 +304,7 @@ font-bold
 text-blue-700
 ">
 
-{driver.name.charAt(0)}
+{(driver.name || driver.full_name || "D").charAt(0).toUpperCase()}
 
 </div>
 
@@ -328,7 +316,7 @@ font-semibold
 text-gray-900
 ">
 
-{driver.name}
+{driver.name || driver.full_name || "Unnamed Driver"}
 
 </p>
 
@@ -348,7 +336,7 @@ text-gray-900
 text-gray-700
 ">
 
-{driver.vehicle}
+{driver.vehicle_number || driver.vehicle || "—"}
 
 </td>
 
@@ -359,7 +347,7 @@ text-gray-700
 text-gray-700
 ">
 
-{driver.phone}
+{driver.phone || "—"}
 
 </td>
 
@@ -368,7 +356,7 @@ text-gray-700
 
 <td>
 
-⭐ {driver.rating}
+⭐ {driver.rating ? Number(driver.rating).toFixed(1) : "N/A"}
 
 </td>
 
@@ -377,7 +365,7 @@ text-gray-700
 
 <td>
 
-<Status status={driver.status}/>
+<Status status={driver.is_online ? "Online" : "Offline"}/>
 
 </td>
 
@@ -386,7 +374,7 @@ text-gray-700
 
 <td>
 
-<DocumentStatus status={driver.documents}/>
+<DocumentStatus status={driver.is_verified ? "Verified" : "Pending"}/>
 
 </td>
 
@@ -398,7 +386,7 @@ font-semibold
 text-gray-900
 ">
 
-{driver.earnings}
+₹{driver.earnings ?? 0}
 
 </td>
 
@@ -430,6 +418,7 @@ View
 
 
 ))
+)
 
 }
 

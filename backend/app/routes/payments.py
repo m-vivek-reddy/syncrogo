@@ -4,27 +4,70 @@ from pydantic import BaseModel
 import hmac
 import hashlib
 import os
+import razorpay
 
-from app.db.database import get_db
+from app.db.session import get_db
+from app.models.booking import Booking
+from app.models.payment import Payment
 from app.models.ride import Ride
+from app.models.user import User
+from app.routes.auth import get_current_user
 from app.services.wallet_service import credit_driver_earnings
 
 router = APIRouter(prefix="/payments", tags=["Payments"])
 
 # Razorpay secret key from your environment variables
 RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET", "your_secret_key")
+RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID")
 
 class PaymentVerifySchema(BaseModel):
     razorpay_order_id: str
     razorpay_payment_id: str
     razorpay_signature: str
-    ride_id: int
-    driver_id: int
+    booking_id: int
+    idempotency_key: str
+
+
+class PaymentOrderSchema(BaseModel):
+    booking_id: int
+
+
+@router.post("/create-order")
+def create_payment_order(payload: PaymentOrderSchema, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Create checkout only for the passenger of an unpaid completed booking."""
+    booking = db.query(Booking).filter(Booking.id == payload.booking_id).first()
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found.")
+    if booking.passenger_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the booking passenger can create payment.")
+    if booking.status != "COMPLETED":
+        raise HTTPException(status_code=400, detail="Payment is available only after the ride is completed.")
+    if not RAZORPAY_KEY_ID or RAZORPAY_KEY_SECRET == "your_secret_key":
+        raise HTTPException(status_code=503, detail="Payment provider is not configured.")
+
+    order = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET)).order.create({
+        "amount": int(round(booking.fare * 100)),
+        "currency": "INR",
+        "receipt": f"booking_{booking.id}",
+        "notes": {"booking_id": str(booking.id)},
+    })
+    return {"order_id": order["id"], "amount": order["amount"], "currency": order["currency"], "key_id": RAZORPAY_KEY_ID}
 
 @router.post("/verify-payment")
-def verify_payment(payload: PaymentVerifySchema, db: Session = Depends(get_db)):
-    """Verifies Razorpay payment signature, marks ride complete, and credits driver wallet."""
+def verify_payment(payload: PaymentVerifySchema, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Verify a passenger payment after their booked ride has completed."""
     
+    # A retry with the same key returns the recorded payment and never credits twice.
+    existing_payment = db.query(Payment).filter(Payment.idempotency_key == payload.idempotency_key).first()
+    if existing_payment:
+        if existing_payment.booking_id != payload.booking_id:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Idempotency key belongs to another booking.")
+        return {
+            "status": existing_payment.status,
+            "message": "Payment was already processed.",
+            "payment_id": existing_payment.id,
+        }
+
     # 1. Verify Razorpay Signature for security
     generated_signature = hmac.new(
         RAZORPAY_KEY_SECRET.encode('utf-8'),
@@ -38,31 +81,74 @@ def verify_payment(payload: PaymentVerifySchema, db: Session = Depends(get_db)):
             detail="Invalid payment signature. Verification failed."
         )
 
-    # 2. Fetch the ride to get exact pricing details
-    ride = db.query(Ride).filter(Ride.id == payload.ride_id).first()
+    # 2. Only the passenger of a completed booking may pay.
+    booking = db.query(Booking).filter(Booking.id == payload.booking_id).first()
+    if not booking:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found.")
+    if booking.passenger_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the booking passenger can make payment.")
+    if booking.status != "COMPLETED":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Payment is available only after the ride is completed.")
+
+    # 3. Fetch the ride to get exact pricing details
+    ride = db.query(Ride).filter(Ride.id == booking.ride_id).first()
     if not ride:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Ride not found."
         )
 
-    # 3. Calculate driver earnings (Final Fare minus Platform Fee)
-    driver_earnings = ride.final_fare - ride.platform_fee
+    if ride.driver_id != booking.driver_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Booking driver does not match the ride.")
 
-    # 4. Credit the driver's wallet automatically using your wallet service
+    amount = booking.fare
+    if amount <= 0:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Booking fare must be positive before payment.")
+
+    payment = Payment(
+        booking_id=booking.id,
+        provider="razorpay",
+        provider_payment_id=payload.razorpay_payment_id,
+        provider_order_id=payload.razorpay_order_id,
+        amount=amount,
+        status="PROCESSING",
+        idempotency_key=payload.idempotency_key,
+    )
+    db.add(payment)
+    try:
+        db.flush()
+    except Exception:
+        db.rollback()
+        existing_payment = db.query(Payment).filter(
+            (Payment.idempotency_key == payload.idempotency_key)
+            | (Payment.provider_payment_id == payload.razorpay_payment_id)
+        ).first()
+        if existing_payment:
+            return {"status": existing_payment.status, "message": "Payment was already processed.", "payment_id": existing_payment.id}
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Duplicate payment could not be processed.")
+
+    # 4. Calculate driver earnings (booking fare minus the platform fee).
+    driver_earnings = max(amount - ride.platform_fee, 0)
+
+    # 5. Credit the booking's driver; do not trust a client-supplied driver id.
     updated_wallet = credit_driver_earnings(
         db=db,
-        driver_id=payload.driver_id,
+        driver_id=booking.driver_id,
         amount=driver_earnings,
-        ride_id=str(ride.id)
+        ride_id=f"booking_{booking.id}"
     )
 
-    # 5. Update ride status to completed
-    ride.status = "completed"
+    payment.status = "PAID"
+    from datetime import datetime, timezone
+    payment.paid_at = datetime.now(timezone.utc)
+    booking.status = "PAID"
     db.commit()
+    db.refresh(payment)
 
     return {
         "status": "success",
         "message": "Payment verified successfully. Driver wallet credited.",
-        "driver_new_balance": updated_wallet.balance
+        "payment_id": payment.id,
+        "booking_status": booking.status,
+        "driver_new_balance": updated_wallet.balance,
     }

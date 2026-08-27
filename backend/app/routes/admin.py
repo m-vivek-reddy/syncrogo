@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 
-from app.db.database import get_db
+from app.db.session import get_db
 from app.models.user import User
 from app.models.ride import Ride
 from app.models.sos import SOSAlert
@@ -22,10 +23,10 @@ def verify_admin_role(
     current_user: User = Depends(get_current_user)
 ):
 
-    if current_user.role != "admin":
+    if current_user.role not in ["admin", "employer"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Administrator privileges required."
+            detail="Administrator or Employer privileges required."
         )
 
     return current_user
@@ -147,10 +148,16 @@ def update_user_role(
     admin: User = Depends(verify_admin_role)
 ):
 
+    if admin.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Employers cannot change user roles. Admin privileges required."
+        )
 
     allowed_roles = [
         "passenger",
         "driver",
+        "employer",
         "admin"
     ]
 
@@ -181,6 +188,48 @@ def update_user_role(
     target_user.role = new_role
 
     db.commit()
+
+
+@router.delete("/users/{target_user_id}")
+def delete_platform_user(
+    target_user_id: int,
+    db: Session = Depends(get_db),
+    admin: User = Depends(verify_admin_role),
+):
+    if admin.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Employers cannot delete accounts. Admin privileges required."
+        )
+    if target_user_id == admin.id:
+        raise HTTPException(status_code=400, detail="You cannot delete your own admin account")
+
+    target_user = db.query(User).filter(User.id == target_user_id).first()
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Remove dependent records first because several legacy tables do not
+    # declare database-level ON DELETE CASCADE constraints.
+    dependent_deletes = [
+        ("documents", "user_id"), ("payment_methods", "user_id"),
+        ("payments", "user_id"), ("notifications", "user_id"),
+        ("emergency_contacts", "user_id"), ("sos_alerts", "user_id"),
+        ("vehicles", "driver_id"), ("wallets", "user_id"),
+        ("messages", "sender_id"), ("messages", "receiver_id"),
+        ("ratings", "reviewer_id"), ("ratings", "reviewee_id"),
+        ("reports", "reporter_id"),
+    ]
+    for table, column in dependent_deletes:
+        db.execute(text(f"DELETE FROM {table} WHERE {column} = :user_id"), {"user_id": target_user_id})
+    db.execute(text("DELETE FROM transactions WHERE wallet_id IN (SELECT id FROM wallets WHERE user_id = :user_id)"), {"user_id": target_user_id})
+    db.execute(text("UPDATE reports SET reported_user_id = NULL WHERE reported_user_id = :user_id"), {"user_id": target_user_id})
+    db.execute(text("DELETE FROM bookings WHERE passenger_id = :user_id OR driver_id = :user_id"), {"user_id": target_user_id})
+    db.execute(text("DELETE FROM rides WHERE driver_id = :user_id"), {"user_id": target_user_id})
+    db.delete(target_user)
+    db.commit()
+    return {"message": "User account deleted", "user_id": target_user_id}
+
+
 # ==============================
 # DOCUMENT VERIFICATION
 # ==============================

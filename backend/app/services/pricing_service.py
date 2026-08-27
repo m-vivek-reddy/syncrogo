@@ -4,22 +4,22 @@ from app.models.ride import Ride
 # Configuration mapping or fetched from platform_settings table
 VEHICLE_PRICING_CONFIG = {
     "bike": {
-        "base_fare": 25.0,
+        "base_fare": 0.0,
         "per_km_rate": 5.0,
         "platform_fee": 5.0,
-        "minimum_fare": 30.0
+        "minimum_fare": 5.0
     },
     "car": {
-        "base_fare": 40.0,
+        "base_fare": 0.0,
         "per_km_rate": 8.0,
         "platform_fee": 8.0,
-        "minimum_fare": 50.0
+        "minimum_fare": 10.0
     }
 }
 
 
 def calculate_ride_fare(distance_km: float, vehicle_type: str, discount: float = 0.0) -> dict:
-    """Calculates the centralized platform MRP and fee breakdown."""
+    """Calculates the centralized platform MRP and fee breakdown without base price."""
     config = VEHICLE_PRICING_CONFIG.get(vehicle_type.lower())
     if not config:
         raise HTTPException(
@@ -27,12 +27,12 @@ def calculate_ride_fare(distance_km: float, vehicle_type: str, discount: float =
             detail=f"Invalid vehicle type: {vehicle_type}"
         )
 
-    base_fare = config["base_fare"]
+    base_fare = config.get("base_fare", 0.0)
     per_km_rate = config["per_km_rate"]
     platform_fee = config["platform_fee"]
     minimum_fare = config["minimum_fare"]
 
-    ride_fare = base_fare + (distance_km * per_km_rate)
+    ride_fare = distance_km * per_km_rate
     mrp_fare = ride_fare + platform_fee
 
     if mrp_fare < minimum_fare:
@@ -55,11 +55,12 @@ def calculate_ride_fare(distance_km: float, vehicle_type: str, discount: float =
 
 
 def validate_and_update_ride_price(ride: Ride, new_price: float):
-    """Ensures modified prices stay strictly between the minimum fare and platform MRP."""
-    if new_price > ride.mrp_fare:
+    """Ensures modified prices do not exceed 15% above the platform fare MRP or drop below minimum fare."""
+    max_allowed = round(ride.mrp_fare * 1.15, 2)
+    if new_price > max_allowed:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Price cannot exceed platform fare (MRP)."
+            detail=f"Price cannot exceed 15% above the platform fare MRP (Maximum allowed: ₹{max_allowed:.2f})."
         )
 
     if new_price < ride.minimum_fare:

@@ -8,6 +8,7 @@ import {
   BarChart3,
   Settings,
   LogOut,
+  X,
 } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 
@@ -22,26 +23,32 @@ const menu = [
   { name: "Settings", icon: Settings, path: "/admin/settings" },
 ];
 
-export default function Sidebar() {
+interface SidebarProps { isOpen: boolean; onClose: () => void; }
+
+export default function Sidebar({ isOpen, onClose }: SidebarProps) {
   const navigate = useNavigate();
 
   const logout = () => {
     localStorage.removeItem("syncrogo_token");
     localStorage.removeItem("token");
+    onClose();
     navigate("/login");
   };
 
   return (
-    <aside className="w-72 min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-800 text-white flex flex-col border-r border-slate-800 shadow-2xl">
+    <>
+    {isOpen && <button aria-label="Close menu overlay" onClick={onClose} className="fixed inset-0 z-40 bg-slate-950/50 lg:hidden" />}
+    <aside className={`fixed inset-y-0 left-0 z-50 flex w-72 min-h-screen flex-col bg-gradient-to-b from-slate-950 via-slate-900 to-slate-800 text-white border-r border-slate-800 shadow-2xl transition-transform duration-300 lg:sticky lg:top-0 lg:min-h-screen lg:translate-x-0 ${isOpen ? "translate-x-0" : "-translate-x-full"}`}>
 
       {/* Logo */}
-      <div className="px-8 py-8 border-b border-slate-800">
+      <div className="px-6 py-6 lg:px-8 lg:py-8 border-b border-slate-800">
 
         <div className="flex items-center gap-3">
 
           <div className="w-12 h-12 rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 flex items-center justify-center text-xl font-bold shadow-lg">
             S
           </div>
+          <button onClick={onClose} aria-label="Close navigation" className="ml-auto rounded-lg p-2 text-slate-300 hover:bg-slate-800 lg:hidden"><X size={22} /></button>
 
           <div>
             <h1 className="text-2xl font-bold tracking-wide">
@@ -70,6 +77,7 @@ export default function Sidebar() {
               key={item.name}
               to={item.path}
               end={item.path === "/admin"}
+              onClick={onClose}
               className={({ isActive }) =>
                 `group relative flex items-center gap-4 rounded-xl px-4 py-3 transition-all duration-300 ${
                   isActive
@@ -139,5 +147,6 @@ export default function Sidebar() {
       </div>
 
     </aside>
+    </>
   );
 }

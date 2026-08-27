@@ -43,12 +43,12 @@ return (
   ">
 
 
-    <div className="p-8 space-y-8">
+    <div className="space-y-5 sm:space-y-8">
 
 
 
   {/* Statistics */}
-  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-6 xl:grid-cols-3">
 
     <StatCard
       title="Passengers"

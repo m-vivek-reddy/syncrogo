@@ -1,5 +1,6 @@
 import { Navigate, Outlet } from 'react-router-dom';
 import { useEffect, useState } from 'react';
+import { API_BASE_URL } from '../api/config';
 
 const getFastAPIToken = () => {
   if (typeof window === 'undefined') {
@@ -23,7 +24,7 @@ export default function PublicRoute() {
       }
 
       try {
-        const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/v1/users/me`, {
+        const response = await fetch(`${API_BASE_URL}/api/v1/users/me`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (!response.ok) throw new Error('Invalid session');

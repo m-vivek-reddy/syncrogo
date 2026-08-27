@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from app.db.database import get_db
+from app.db.session import get_db
 from app.models.vehicle import Vehicle
 from app.models.user import User
 from app.schemas.vehicle import VehicleCreate, VehicleResponse

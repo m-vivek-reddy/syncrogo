@@ -16,6 +16,7 @@ export interface DriverOffer {
 interface RouteDetails {
   pickup: { address: string };
   destination: { address: string };
+  maximumFare?: number | null;
 }
 
 interface AvailableRidesState {
@@ -53,6 +54,12 @@ export default function AvailableRides() {
             <span className="h-3 w-3 flex-shrink-0 rounded-full bg-emerald-600" />
             <p className="truncate font-semibold text-gray-800">{routeDetails?.destination.address || 'Destination'}</p>
           </div>
+          {routeDetails?.maximumFare != null && (
+            <div className="mt-4 rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+              <span className="font-bold">Maximum estimated fare: ₹{routeDetails.maximumFare.toFixed(2)}</span>
+              <span className="ml-1">(distance and travel time)</span>
+            </div>
+          )}
         </div>
 
         <h2 className="mb-4 font-bold text-gray-800">Available Rides Nearby</h2>

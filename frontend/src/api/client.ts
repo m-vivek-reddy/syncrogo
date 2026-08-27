@@ -1,12 +1,15 @@
 import axios from "axios";
+import { API_BASE_URL } from "./config";
 
 
 export const apiClient = axios.create({
 
-    baseURL:"http://127.0.0.1:8000",
+    baseURL: API_BASE_URL,
 
-    headers:{
-        "Content-Type":"application/json"
+    headers: {
+        "Content-Type": "application/json",
+        "X-Tunnel-Skip-AntiPhishing-Page": "true",
+        "ngrok-skip-browser-warning": "true"
     }
 
 });
@@ -16,8 +19,12 @@ apiClient.interceptors.request.use(
 
 (config)=>{
 
+    // Keep compatibility with sessions created by earlier versions of the
+    // application.  Route guards already recognise both keys, so requests
+    // must do the same.
     const token =
-    localStorage.getItem("syncrogo_token");
+    localStorage.getItem("syncrogo_token") ||
+    localStorage.getItem("token");
 
 
     if(token){

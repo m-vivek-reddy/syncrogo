@@ -3,7 +3,7 @@ from typing import List
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
-from app.db.database import get_db
+from app.db.session import get_db
 from app.models.payment import PaymentMethod
 from app.routes.auth import get_current_user
 

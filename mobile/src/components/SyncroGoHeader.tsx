@@ -1,0 +1,3 @@
+import { Text, View } from "react-native";
+import { Colors } from "../constants/colors";
+export default function SyncroGoHeader({ title, subtitle }: { title: string; subtitle?: string }) { return <View style={{ marginHorizontal: -20, marginTop: -20, marginBottom: 24, paddingHorizontal: 20, paddingVertical: 20, backgroundColor: Colors.surface, borderBottomWidth: 1, borderBottomColor: Colors.border }}><Text style={{ fontSize: 28, fontWeight: "800", color: Colors.text }}>{title}</Text>{subtitle ? <Text style={{ marginTop: 6, color: Colors.textSecondary, fontSize: 14 }}>{subtitle}</Text> : null}</View>; }

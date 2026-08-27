@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { searchRidesWithBackend, bookSeatWithBackend, createPaymentOrder, verifyPaymentSignature } from '../api/auth';
+import { searchRidesWithBackend, bookSeatWithBackend, calculateFareWithBackend } from '../api/auth';
 import { useAppStore } from '../store/useAppStore';
 import RideMap from '../components/RideMap';
 import LocationFlow from '../components/LocationFlow';
 import { Phone, MessageSquare, CarFront } from 'lucide-react';
+import { getRoadRoute } from '../services/routing';
 
 interface DriverOffer {
   id: number;
@@ -18,13 +19,6 @@ interface DriverOffer {
   available_seats: number;
   gender_preference: string;
 }
-
-declare global {
-  interface Window {
-    Razorpay?: new (options: any) => { open: () => void };
-  }
-}
-
 
 export default function FindRide() {
   const navigate = useNavigate();
@@ -45,6 +39,7 @@ export default function FindRide() {
   const [isSearching, setIsSearching] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const [isPaying, setIsPaying] = useState(false);
+  const [maximumFare, setMaximumFare] = useState<number | null>(null);
 
   const handleLocationConfirmed = (payload: { pickup: { address: string; lat: number | null; lng: number | null }; destination: { address: string; lat: number | null; lng: number | null } }) => {
     setPickup(payload.pickup.address);
@@ -58,11 +53,34 @@ export default function FindRide() {
       setDestinationLocation([payload.destination.lat, payload.destination.lng]);
     }
 
-    void handleSearch({ preventDefault: () => undefined } as React.FormEvent, payload);
+    void (async () => {
+      if (payload.pickup.lat !== null && payload.pickup.lng !== null && payload.destination.lat !== null && payload.destination.lng !== null) {
+        try {
+          const route = await getRoadRoute(
+            { latitude: payload.pickup.lat, longitude: payload.pickup.lng },
+            { latitude: payload.destination.lat, longitude: payload.destination.lng },
+          );
+          const fare = await calculateFareWithBackend(route.distanceKm, 'carpool', route.durationMinutes);
+          const estimatedFare = fare.success ? Number(fare.data.total_fare) : null;
+          setMaximumFare(estimatedFare);
+          await handleSearch({ preventDefault: () => undefined } as React.FormEvent, payload, estimatedFare);
+          return;
+        } catch (routeError) {
+          console.error('Unable to calculate the fare estimate:', routeError);
+          setMaximumFare(null);
+        }
+      }
+
+      await handleSearch({ preventDefault: () => undefined } as React.FormEvent, payload, null);
+    })();
   };
 
   // � SEARCH THE DATABASE FOR MATCHING OFFERS
-  const handleSearch = async (e: React.FormEvent, confirmedRoute?: { pickup: { address: string; lat: number | null; lng: number | null }; destination: { address: string; lat: number | null; lng: number | null } }) => {
+  const handleSearch = async (
+    e: React.FormEvent,
+    confirmedRoute?: { pickup: { address: string; lat: number | null; lng: number | null }; destination: { address: string; lat: number | null; lng: number | null } },
+    maximumFareOverride?: number | null,
+  ) => {
     e.preventDefault();
 
     const resolvedPickup = confirmedRoute && confirmedRoute.pickup.lat !== null && confirmedRoute.pickup.lng !== null
@@ -101,6 +119,7 @@ export default function FindRide() {
           routeDetails: {
             pickup: { address: pickupAddress },
             destination: { address: destinationAddress },
+            maximumFare: maximumFareOverride ?? maximumFare,
           },
         },
       });
@@ -108,7 +127,7 @@ export default function FindRide() {
     setIsSearching(false);
   };
 
-  // Action Handlers
+  /* Pre-ride checkout support is disabled. It remains below only as historical context.
   const loadRazorpayScript = () => {
     return new Promise((resolve, reject) => {
       if (typeof window === 'undefined' || window.Razorpay) {
@@ -125,9 +144,30 @@ export default function FindRide() {
     });
   };
 
+  */
   const handleBookSeat = async (offer: DriverOffer) => {
+    // Booking reserves the seat only. Checkout is deliberately unavailable until
+    // the driver completes the trip and the booking is marked COMPLETED.
+    setIsPaying(true);
     try {
-      setIsPaying(true);
+      const bookingResult = await bookSeatWithBackend(offer.id);
+      if (bookingResult.success) {
+        alert('Seat booked. Payment will be available after ride completion.');
+        await handleSearch({ preventDefault: () => undefined } as React.FormEvent);
+      } else {
+        alert(`Booking failed: ${bookingResult.error}`);
+      }
+    } catch (error: any) {
+      console.error('Booking failed:', error);
+      alert(error.message || 'Booking failed');
+    } finally {
+      setIsPaying(false);
+    }
+
+    return;
+
+    /* Legacy pre-ride checkout is intentionally disabled.
+    try {
       await loadRazorpayScript();
 
       const orderResult = await createPaymentOrder(offer.price_per_seat, offer.id);
@@ -184,6 +224,9 @@ export default function FindRide() {
       alert(`❌ ${error.message || 'Payment failed'}`);
       setIsPaying(false);
     }
+  };
+
+    */
   };
 
   const handleCall = (phone?: string) => {
@@ -246,6 +289,12 @@ export default function FindRide() {
             <p className="text-xs text-gray-400 font-bold uppercase">Current route</p>
             <span className="text-xs text-gray-500">{pickup || 'Pickup not set'}</span>
           </div>
+          {maximumFare !== null && (
+            <div className="rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+              <span className="font-bold">Maximum estimated fare: ₹{maximumFare.toFixed(2)}</span>
+              <span className="ml-2 text-emerald-700">Based on distance and travel time.</span>
+            </div>
+          )}
           <div className="flex items-center justify-between">
             <p className="text-xs text-gray-400 font-bold uppercase">Destination</p>
             <span className="text-xs text-gray-500">{destination || 'Destination not set'}</span>
@@ -323,7 +372,7 @@ export default function FindRide() {
                     disabled={isPaying}
                     className="flex-[2] bg-syncro-dark text-white font-bold py-3 rounded-xl hover:bg-black transition-colors disabled:bg-gray-400"
                   >
-                    {isPaying ? 'Processing...' : 'Book Seat & Pay'}
+                    {isPaying ? 'Booking...' : 'Book Seat'}
                   </button>
                 </div>
 

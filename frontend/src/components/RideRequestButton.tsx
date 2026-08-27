@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { API_BASE_URL } from '../api/config';
 
 interface LatLng {
   lat: number;
@@ -12,8 +13,6 @@ interface RideRequestButtonProps {
   vehicleType: string;
   distanceKm: number;
 }
-
-const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
 
 export function RideRequestButton({ passengerId, pickup, drop, vehicleType, distanceKm }: RideRequestButtonProps) {
   const [loading, setLoading] = useState(false);

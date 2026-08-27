@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { apiClient } from '../api/client';
+import ProfileBackButton from "../components/profile/ProfileBackButton";
 
 interface PaymentCard {
   id: number;
@@ -61,6 +62,7 @@ export default function PaymentMethods() {
 
   return (
     <div className="p-6 max-w-md mx-auto bg-slate-50 min-h-screen">
+      <ProfileBackButton />
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-xl font-bold text-slate-800">Payment Methods</h2>
         <button

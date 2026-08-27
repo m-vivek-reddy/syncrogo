@@ -1,42 +1,27 @@
-import { useState } from "react";
-
-
-const alerts = [
-  {
-    id:1,
-    driver:"Rahul Kumar",
-    passenger:"Priya Sharma",
-    location:"Hyderabad",
-    priority:"High",
-    status:"Active",
-    time:"12:30 PM"
-  },
-  {
-    id:2,
-    driver:"Arjun Reddy",
-    passenger:"Sneha",
-    location:"Gachibowli",
-    priority:"Medium",
-    status:"Pending",
-    time:"11:50 AM"
-  },
-  {
-    id:3,
-    driver:"Kiran",
-    passenger:"Amit",
-    location:"Madhapur",
-    priority:"Low",
-    status:"Resolved",
-    time:"10:20 AM"
-  }
-];
-
-
+import { useCallback, useEffect, useState } from "react";
+import { apiClient } from "../api/client";
 
 export default function AdminSOS(){
+  const [alerts, setAlerts] = useState<any[]>([]);
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
 
+  const fetchAlerts = useCallback(async () => {
+    try {
+      setLoading(true);
+      const res = await apiClient.get("/sos/");
+      const list = Array.isArray(res.data) ? res.data : Array.isArray(res.data?.data) ? res.data.data : [];
+      setAlerts(list);
+    } catch {
+      setAlerts([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-const [search,setSearch]=useState("");
+  useEffect(() => {
+    fetchAlerts();
+  }, [fetchAlerts]);
 
 
 
@@ -64,8 +49,9 @@ p-6
 
 <div className="
 flex
+flex-col sm:flex-row
 justify-between
-items-center
+items-start sm:items-center
 mb-6
 ">
 
@@ -74,7 +60,7 @@ mb-6
 
 
 <h1 className="
-text-4xl
+text-2xl sm:text-4xl
 font-bold
 text-gray-900
 ">
@@ -100,6 +86,7 @@ Monitor and manage emergency alerts across SyncroGo
 
 <div className="
 flex
+flex-wrap
 gap-3
 ">
 
@@ -153,33 +140,33 @@ Export Report
 
 <div className="
 grid
-grid-cols-3
-gap-5
+grid-cols-1 sm:grid-cols-3
+gap-4 sm:gap-5
 mb-6
 ">
 
 
 <Card
 title="Active Alerts"
-value="0"
+value={alerts.filter((a) => a.status === "active" || a.status === "Active").length.toString()}
 color="text-red-600"
-desc="No emergencies detected"
+desc={alerts.some((a) => a.status === "active") ? "Emergency active" : "No active emergencies"}
 />
 
 
 <Card
 title="Resolved"
-value="24"
+value={alerts.filter((a) => a.status === "resolved" || a.status === "Resolved").length.toString()}
 color="text-green-600"
 desc="Successfully handled"
 />
 
 
 <Card
-title="Pending"
-value="3"
+title="Total SOS Logs"
+value={alerts.length.toString()}
 color="text-orange-600"
-desc="Waiting for action"
+desc="Platform total"
 />
 
 
@@ -317,13 +304,13 @@ placeholder-gray-500
 bg-white
 rounded-xl
 shadow
-overflow-hidden
+overflow-x-auto
 border
 border-gray-200
 ">
 
 
-<table className="w-full">
+<table className="min-w-[760px] w-full">
 
 
 <thead className="

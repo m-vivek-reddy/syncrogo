@@ -1,7 +1,7 @@
 export default function AdminReports() {
   return (
-    <div className="p-8">
-      <h1 className="text-3xl font-bold text-slate-900">
+    <div>
+      <h1 className="text-2xl sm:text-3xl font-bold text-slate-900">
         Reports
       </h1>
 
