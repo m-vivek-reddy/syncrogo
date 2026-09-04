@@ -4,6 +4,7 @@ import React, {
   useEffect,
   useState,
 } from "react";
+import { router } from "expo-router";
 import {
   storageGet,
   storageSet,
@@ -281,10 +282,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   async function logout() {
-    await storageDelete(TOKEN_KEY);
-    setToken(null);
-    setUser(null);
-    await useAuthStore.getState().logout();
+    try {
+      await storageDelete(TOKEN_KEY);
+      setToken(null);
+      setUser(null);
+      await useAuthStore.getState().logout();
+
+      // Always send the user to Login after sign out
+      router.replace("/(auth)/login");
+    } catch (error) {
+      console.error("[Auth] Logout error:", error);
+
+      // Even if storage cleanup fails, don't leave
+      // the user stuck on an authenticated screen.
+      router.replace("/(auth)/login");
+    }
   }
 
   return (
