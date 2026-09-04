@@ -1,14 +1,17 @@
 import logging
 import os
+import re
+import smtplib
 from html import escape
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from pathlib import Path
 from dotenv import load_dotenv
-import resend
 
 logger = logging.getLogger(__name__)
 
 # Ensure environment is loaded if not already present.
-if not os.getenv("RESEND_API_KEY"):
+if not os.getenv("SMTP_EMAIL") or not os.getenv("SMTP_PASSWORD"):
     for _env_path in [
         Path(__file__).resolve().parent.parent.parent / ".env",
         Path.cwd() / "backend" / ".env",
@@ -20,36 +23,47 @@ if not os.getenv("RESEND_API_KEY"):
 
 
 def _send_mail(to_email: str, subject: str, html_body: str) -> bool:
-    """Send transactional email through Resend's HTTPS API."""
-    api_key = (os.getenv("RESEND_API_KEY") or "").strip()
-    sender = (os.getenv("EMAIL_FROM") or "").strip()
-
-    if not api_key:
-        logger.warning(
-            "Email not sent to %s: RESEND_API_KEY is not configured.",
-            to_email,
-        )
-        return False
-
-    if not sender:
-        logger.warning(
-            "Email not sent to %s: EMAIL_FROM is not configured.",
-            to_email,
-        )
-        return False
+    """Send transactional email through Gmail SMTP."""
+    sender_email = (os.getenv("SMTP_EMAIL") or "").strip()
+    sender_password = (os.getenv("SMTP_PASSWORD") or "").strip()
+    smtp_host = (os.getenv("SMTP_HOST") or "smtp.gmail.com").strip()
 
     try:
-        resend.api_key = api_key
-        response = resend.Emails.send({
-            "from": sender,
-            "to": [to_email],
-            "subject": subject,
-            "html": html_body,
-        })
-        logger.info("Email accepted for %s via Resend: %s", to_email, response)
+        smtp_port = int(os.getenv("SMTP_PORT") or "587")
+    except ValueError:
+        logger.warning(
+            "Email not sent to %s: SMTP_PORT must be a number.",
+            to_email,
+        )
+        return False
+
+    if not sender_email or not sender_password:
+        logger.warning(
+            "Email not sent to %s: SMTP_EMAIL/SMTP_PASSWORD are not configured.",
+            to_email,
+        )
+        return False
+
+    # Gmail displays app passwords in groups, but SMTP expects the value
+    # without formatting spaces.
+    if smtp_host.lower() == "smtp.gmail.com":
+        sender_password = re.sub(r"\s+", "", sender_password)
+
+    message = MIMEMultipart()
+    message["From"] = sender_email
+    message["To"] = to_email
+    message["Subject"] = subject
+    message.attach(MIMEText(html_body, "html", "utf-8"))
+
+    try:
+        with smtplib.SMTP(smtp_host, smtp_port, timeout=20) as server:
+            server.starttls()
+            server.login(sender_email, sender_password)
+            server.send_message(message)
+        logger.info("Email sent successfully to %s via SMTP", to_email)
         return True
     except Exception:
-        logger.exception("Failed to send email to %s via Resend", to_email)
+        logger.exception("Failed to send email to %s via SMTP", to_email)
         return False
 
 
