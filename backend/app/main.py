@@ -1,7 +1,20 @@
+import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+# Ensure environment variables are loaded regardless of current working directory
+for _env_file in [
+    Path(__file__).resolve().parent.parent / ".env",
+    Path.cwd() / "backend" / ".env",
+    Path.cwd() / ".env",
+]:
+    if _env_file.is_file():
+        load_dotenv(dotenv_path=_env_file)
+        break
+
 from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from pathlib import Path
 
 from app.middleware.security import (
     SecurityHeadersMiddleware,

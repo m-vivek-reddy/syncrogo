@@ -368,9 +368,19 @@ Action
 <tbody>
 
 
-{
-
-filteredAlerts.length===0 ? (
+{loading ? (
+  <tr>
+    <td
+      colSpan={7}
+      className="text-center p-10 text-gray-500"
+    >
+      <div className="flex justify-center items-center gap-2">
+        <span className="text-xl">⏳</span>
+        <span className="font-semibold text-gray-700">Loading SOS alerts...</span>
+      </div>
+    </td>
+  </tr>
+) : filteredAlerts.length===0 ? (
 
 
 <tr>

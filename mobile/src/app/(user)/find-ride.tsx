@@ -3,6 +3,7 @@ import {
   Alert,
   Keyboard,
   Linking,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -48,10 +49,10 @@ type DriverOffer = {
 };
 
 export default function FindRide() {
-  const [pickup, setPickup] = useState("Hayathnagar, Hyderabad");
-  const [destination, setDestination] = useState("Lal Bahadur Nagar, Hyderabad");
-  const [pickupCoord, setPickupCoord] = useState<Coordinate>({ latitude: 17.3298, longitude: 78.6017 });
-  const [destinationCoord, setDestinationCoord] = useState<Coordinate>({ latitude: 17.348, longitude: 78.551 });
+  const [pickup, setPickup] = useState("");
+  const [destination, setDestination] = useState("");
+  const [pickupCoord, setPickupCoord] = useState<Coordinate | null>(null);
+  const [destinationCoord, setDestinationCoord] = useState<Coordinate | null>(null);
   const [selectionMode, setSelectionMode] = useState<"pickup" | "destination">("pickup");
 
   // Autocomplete state
@@ -68,12 +69,78 @@ export default function FindRide() {
   const [hasSearched, setHasSearched] = useState(false);
   const [bookingRideId, setBookingRideId] = useState<number | null>(null);
 
-  // Passenger live GPS (used for search & shared with the backend)
+  // Route metrics from road router
+  const [distanceKm, setDistanceKm] = useState<number | null>(null);
+  const [durationMinutes, setDurationMinutes] = useState<number | null>(null);
+
+  // Passenger live GPS state
   const [liveLocation, setLiveLocation] = useState<Coordinate | null>(null);
   const [locationStatus, setLocationStatus] = useState<
     "idle" | "locating" | "granted" | "denied" | "unavailable"
   >("idle");
+  const [gpsLoading, setGpsLoading] = useState(false);
+  const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null);
   const locationWatchRef = useRef<Location.LocationSubscription | null>(null);
+
+  /*
+   * Explicitly set current location as pickup point
+   */
+  const handleUseCurrentLocation = useCallback(async () => {
+    setGpsLoading(true);
+    setActiveDropdown(null);
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert(
+          "Permission Required",
+          "Location permission is needed to set your current location as pickup point."
+        );
+        setLocationStatus("denied");
+        setGpsLoading(false);
+        return;
+      }
+
+      if (Platform.OS === "android") {
+        try {
+          const provider = await Location.getProviderStatusAsync();
+          if (!provider.locationServicesEnabled) {
+            await Location.enableNetworkProviderAsync().catch(() => {});
+          }
+        } catch {}
+      }
+
+      const loc = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Highest,
+        mayShowUserSettingsDialog: true,
+      });
+
+      const accuracy = loc.coords.accuracy ?? null;
+      setGpsAccuracy(accuracy);
+
+      const coord: Coordinate = {
+        latitude: loc.coords.latitude,
+        longitude: loc.coords.longitude,
+      };
+
+      setLiveLocation(coord);
+      setPickupCoord(coord);
+      setLocationStatus("granted");
+
+      // Reverse geocode to get a clear human-readable address
+      const addr = await reverseGeocode(coord.latitude, coord.longitude);
+      setPickup(addr || `Current Location (${coord.latitude.toFixed(4)}, ${coord.longitude.toFixed(4)})`);
+      setPickupSuggestions([]);
+      setSelectionMode("destination");
+      Keyboard.dismiss();
+    } catch {
+      Alert.alert(
+        "GPS Error",
+        "Could not fetch current high-accuracy GPS location. Please ensure location services are enabled."
+      );
+    } finally {
+      setGpsLoading(false);
+    }
+  }, []);
 
   const startLiveLocation = useCallback(async () => {
     try {
@@ -84,7 +151,6 @@ export default function FindRide() {
         return;
       }
 
-      // Immediate fix so search has coordinates even before first watch tick
       const pos = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.High,
       });
@@ -93,10 +159,19 @@ export default function FindRide() {
         longitude: pos.coords.longitude,
       };
       setLiveLocation(first);
-      setPickupCoord(first);
       setLocationStatus("granted");
 
-      // Continuous watch so the passenger's location stays live
+      // If pickup is not manually chosen yet, prefill current location
+      setPickupCoord((prev) => {
+        if (!prev) {
+          void reverseGeocode(first.latitude, first.longitude).then((addr) => {
+            setPickup((current) => (current ? current : addr || "Current Location"));
+          });
+          return first;
+        }
+        return prev;
+      });
+
       locationWatchRef.current = await Location.watchPositionAsync(
         { accuracy: Location.Accuracy.Balanced, timeInterval: 10000, distanceInterval: 25 },
         (loc) => {
@@ -105,7 +180,6 @@ export default function FindRide() {
             longitude: loc.coords.longitude,
           };
           setLiveLocation(coord);
-          setPickupCoord(coord);
         }
       );
     } catch {
@@ -211,12 +285,40 @@ export default function FindRide() {
     } catch {}
   }, []);
 
+  const handleClearPickup = () => {
+    setPickup("");
+    setPickupCoord(null);
+    setPickupSuggestions([]);
+    setDistanceKm(null);
+    setDurationMinutes(null);
+  };
+
+  const handleClearDest = () => {
+    setDestination("");
+    setDestinationCoord(null);
+    setDestSuggestions([]);
+    setDistanceKm(null);
+    setDurationMinutes(null);
+  };
+
+  const handleRouteChange = useCallback((distance: number, duration: number) => {
+    setDistanceKm(distance);
+    setDurationMinutes(duration);
+  }, []);
+
   const handleSearch = async () => {
-    const useCoord = liveLocation ?? pickupCoord;
-    if (!pickup.trim() || !destination.trim()) {
+    const useCoord = pickupCoord ?? liveLocation;
+    if (!pickup.trim() || !useCoord) {
       return Alert.alert(
-        "Locations Required",
-        "Please enter both pickup and destination."
+        "Pickup Location Required",
+        "Please select a pickup location or tap 'Use Current Location'."
+      );
+    }
+
+    if (!destination.trim() || !destinationCoord) {
+      return Alert.alert(
+        "Destination Required",
+        "Please enter or select a destination."
       );
     }
 
@@ -330,75 +432,232 @@ export default function FindRide() {
       </View>
 
       <View style={styles.card}>
-        <Text style={styles.label}>1. PICKUP LOCATION</Text>
-        <View style={[styles.inputBox, selectionMode === "pickup" && styles.inputBoxActivePickup]}>
-          <Text style={styles.inputIcon}>📍</Text>
-          <TextInput
-            style={styles.input}
-            value={pickup}
-            onChangeText={handlePickupTextChange}
-            onFocus={() => {
+        {/* Quick Current Location Button */}
+        <Pressable
+          onPress={handleUseCurrentLocation}
+          disabled={gpsLoading}
+          style={({ pressed }) => [
+            styles.useLocationBtn,
+            pressed && styles.useLocationBtnPressed,
+          ]}
+        >
+          {gpsLoading ? (
+            <ActivityIndicator size="small" color="#1D4ED8" />
+          ) : (
+            <Text style={styles.useLocationIcon}>🎯</Text>
+          )}
+          <View style={{ flex: 1 }}>
+            <Text style={styles.useLocationTitle}>
+              {gpsLoading ? "Detecting current GPS location..." : "Use My Current Location"}
+            </Text>
+            <Text style={styles.useLocationSub}>
+              Tap to set pickup at your live location
+            </Text>
+          </View>
+          {gpsAccuracy !== null && (
+            <View style={styles.accuracyTag}>
+              <Text style={styles.accuracyTagText}>±{Math.round(gpsAccuracy)}m</Text>
+            </View>
+          )}
+        </Pressable>
+
+        {/* Mode Switcher Tabs */}
+        <View style={styles.modeTabsRow}>
+          <Pressable
+            onPress={() => {
               setSelectionMode("pickup");
               setActiveDropdown("pickup");
             }}
-            placeholder="Type pickup address or area"
-            placeholderTextColor="#94A3B8"
-          />
-          {searchingPickup && <ActivityIndicator size="small" color={Colors.primary} />}
-        </View>
+            style={[
+              styles.modeTab,
+              selectionMode === "pickup" && styles.modeTabActivePickup,
+            ]}
+          >
+            <Text
+              style={[
+                styles.modeTabText,
+                selectionMode === "pickup" && styles.modeTabTextActivePickup,
+              ]}
+            >
+              📍 1. Pickup Point
+            </Text>
+          </Pressable>
 
-        {activeDropdown === "pickup" && pickupSuggestions.length > 0 && (
-          <View style={styles.suggestionsList}>
-            {pickupSuggestions.map((place, idx) => (
-              <Pressable
-                key={`p-${idx}-${place.latitude}`}
-                onPress={() => handleSelectPickupSuggestion(place)}
-                style={styles.suggestionItem}
-              >
-                <Text style={styles.suggestionIcon}>📍</Text>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.suggestionTitle} numberOfLines={1}>{place.displayName}</Text>
-                  {place.subtitle && <Text style={styles.suggestionSub} numberOfLines={1}>{place.subtitle}</Text>}
-                </View>
-              </Pressable>
-            ))}
-          </View>
-        )}
-
-        <Text style={[styles.label, { marginTop: 14 }]}>2. DESTINATION</Text>
-        <View style={[styles.inputBox, selectionMode === "destination" && styles.inputBoxActiveDest]}>
-          <Text style={styles.inputIcon}>🏁</Text>
-          <TextInput
-            style={styles.input}
-            value={destination}
-            onChangeText={handleDestTextChange}
-            onFocus={() => {
+          <Pressable
+            onPress={() => {
               setSelectionMode("destination");
               setActiveDropdown("destination");
             }}
-            placeholder="Type dropoff address or landmark"
-            placeholderTextColor="#94A3B8"
-          />
-          {searchingDest && <ActivityIndicator size="small" color={Colors.green} />}
+            style={[
+              styles.modeTab,
+              selectionMode === "destination" && styles.modeTabActiveDest,
+            ]}
+          >
+            <Text
+              style={[
+                styles.modeTabText,
+                selectionMode === "destination" && styles.modeTabTextActiveDest,
+              ]}
+            >
+              🏁 2. Destination
+            </Text>
+          </Pressable>
         </View>
 
-        {activeDropdown === "destination" && destSuggestions.length > 0 && (
-          <View style={styles.suggestionsList}>
-            {destSuggestions.map((place, idx) => (
+        {/* PICKUP LOCATION INPUT */}
+        <View style={styles.inputWrapper}>
+          <View style={styles.labelRow}>
+            <Text style={styles.label}>1. PICKUP LOCATION</Text>
+            {pickupCoord && (
+              <Text style={styles.coordLabel}>
+                {pickupCoord.latitude.toFixed(4)}, {pickupCoord.longitude.toFixed(4)}
+              </Text>
+            )}
+          </View>
+          <View
+            style={[
+              styles.inputBox,
+              selectionMode === "pickup" && styles.inputBoxActivePickup,
+            ]}
+          >
+            <Text style={styles.inputIcon}>📍</Text>
+            <TextInput
+              style={styles.input}
+              value={pickup}
+              onChangeText={handlePickupTextChange}
+              onFocus={() => {
+                setSelectionMode("pickup");
+                setActiveDropdown("pickup");
+              }}
+              placeholder="Search pickup address or tap GPS"
+              placeholderTextColor="#94A3B8"
+            />
+            {searchingPickup && (
+              <ActivityIndicator size="small" color={Colors.primary} />
+            )}
+            {pickup.length > 0 && !searchingPickup && (
+              <Pressable onPress={handleClearPickup} style={styles.clearBtn}>
+                <Text style={styles.clearBtnText}>✕</Text>
+              </Pressable>
+            )}
+            <Pressable
+              onPress={handleUseCurrentLocation}
+              disabled={gpsLoading}
+              style={styles.inlineGpsBtn}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Text style={styles.inlineGpsBtnText}>🎯 GPS</Text>
+            </Pressable>
+          </View>
+
+          {/* Pickup suggestions dropdown */}
+          {activeDropdown === "pickup" && (
+            <View style={styles.suggestionsList}>
               <Pressable
-                key={`d-${idx}-${place.latitude}`}
-                onPress={() => handleSelectDestSuggestion(place)}
-                style={styles.suggestionItem}
+                onPress={handleUseCurrentLocation}
+                style={styles.currentLocationSuggestionItem}
               >
-                <Text style={styles.suggestionIcon}>🏁</Text>
+                <View style={styles.currentLocationIconCircle}>
+                  <Text style={styles.currentLocationIconText}>🎯</Text>
+                </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.suggestionTitle} numberOfLines={1}>{place.displayName}</Text>
-                  {place.subtitle && <Text style={styles.suggestionSub} numberOfLines={1}>{place.subtitle}</Text>}
+                  <Text style={styles.currentLocationTitle}>
+                    Use Current Location
+                  </Text>
+                  <Text style={styles.suggestionSub}>
+                    {liveLocation
+                      ? `GPS: (${liveLocation.latitude.toFixed(4)}, ${liveLocation.longitude.toFixed(4)})`
+                      : "Tap to set pickup at your current GPS location"}
+                  </Text>
                 </View>
               </Pressable>
-            ))}
+
+              {pickupSuggestions.map((place, idx) => (
+                <Pressable
+                  key={`p-${idx}-${place.latitude}`}
+                  onPress={() => handleSelectPickupSuggestion(place)}
+                  style={styles.suggestionItem}
+                >
+                  <Text style={styles.suggestionIcon}>📍</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.suggestionTitle} numberOfLines={1}>
+                      {place.displayName}
+                    </Text>
+                    {place.subtitle && (
+                      <Text style={styles.suggestionSub} numberOfLines={1}>
+                        {place.subtitle}
+                      </Text>
+                    )}
+                  </View>
+                </Pressable>
+              ))}
+            </View>
+          )}
+        </View>
+
+        {/* DESTINATION LOCATION INPUT */}
+        <View style={[styles.inputWrapper, { marginTop: 14 }]}>
+          <View style={styles.labelRow}>
+            <Text style={styles.label}>2. DESTINATION</Text>
+            {destinationCoord && (
+              <Text style={styles.coordLabel}>
+                {destinationCoord.latitude.toFixed(4)}, {destinationCoord.longitude.toFixed(4)}
+              </Text>
+            )}
           </View>
-        )}
+          <View
+            style={[
+              styles.inputBox,
+              selectionMode === "destination" && styles.inputBoxActiveDest,
+            ]}
+          >
+            <Text style={styles.inputIcon}>🏁</Text>
+            <TextInput
+              style={styles.input}
+              value={destination}
+              onChangeText={handleDestTextChange}
+              onFocus={() => {
+                setSelectionMode("destination");
+                setActiveDropdown("destination");
+              }}
+              placeholder="Type destination address, area or landmark"
+              placeholderTextColor="#94A3B8"
+            />
+            {searchingDest && (
+              <ActivityIndicator size="small" color={Colors.green} />
+            )}
+            {destination.length > 0 && !searchingDest && (
+              <Pressable onPress={handleClearDest} style={styles.clearBtn}>
+                <Text style={styles.clearBtnText}>✕</Text>
+              </Pressable>
+            )}
+          </View>
+
+          {/* Destination suggestions dropdown */}
+          {activeDropdown === "destination" && destSuggestions.length > 0 && (
+            <View style={styles.suggestionsList}>
+              {destSuggestions.map((place, idx) => (
+                <Pressable
+                  key={`d-${idx}-${place.latitude}`}
+                  onPress={() => handleSelectDestSuggestion(place)}
+                  style={styles.suggestionItem}
+                >
+                  <Text style={styles.suggestionIcon}>🏁</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.suggestionTitle} numberOfLines={1}>
+                      {place.displayName}
+                    </Text>
+                    {place.subtitle && (
+                      <Text style={styles.suggestionSub} numberOfLines={1}>
+                        {place.subtitle}
+                      </Text>
+                    )}
+                  </View>
+                </Pressable>
+              ))}
+            </View>
+          )}
+        </View>
 
         {/* Map Pin Point Adjuster */}
         <Text style={[styles.label, { marginTop: 16 }]}>MAP PINPOINT ADJUSTMENT</Text>
@@ -409,9 +668,24 @@ export default function FindRide() {
             selectionMode={selectionMode}
             onPickupChange={handlePickupMapChange}
             onDestinationChange={handleDestMapChange}
-            onRouteChange={useCallback(() => {}, [])}
+            onRouteChange={handleRouteChange}
           />
         </View>
+
+        {/* Route Summary */}
+        {distanceKm !== null && durationMinutes !== null && (
+          <View style={styles.summaryCard}>
+            <View style={styles.summaryStat}>
+              <Text style={styles.summaryValue}>{distanceKm} km</Text>
+              <Text style={styles.summaryLabel}>Road Distance</Text>
+            </View>
+            <View style={styles.summaryDivider} />
+            <View style={styles.summaryStat}>
+              <Text style={styles.summaryValue}>{durationMinutes} min</Text>
+              <Text style={styles.summaryLabel}>Est. Travel Time</Text>
+            </View>
+          </View>
+        )}
 
         <View style={styles.estimateBanner}>
           <Text style={styles.estimateText}>
@@ -638,6 +912,100 @@ const styles = StyleSheet.create({
     elevation: 2,
     marginBottom: 16,
   },
+  useLocationBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: "#EFF6FF",
+    borderWidth: 1.5,
+    borderColor: "#BFDBFE",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 14,
+    marginBottom: 14,
+  },
+  useLocationBtnPressed: {
+    backgroundColor: "#DBEAFE",
+    transform: [{ scale: 0.98 }],
+  },
+  useLocationIcon: {
+    fontSize: 20,
+  },
+  useLocationTitle: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#1D4ED8",
+  },
+  useLocationSub: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#3B82F6",
+    marginTop: 1,
+  },
+  accuracyTag: {
+    backgroundColor: "#DCFCE7",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#BBF7D0",
+  },
+  accuracyTagText: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: "#166534",
+  },
+  modeTabsRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 14,
+  },
+  modeTab: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: "#E2E8F0",
+    backgroundColor: "#F8FAFC",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modeTabActivePickup: {
+    borderColor: "#2563EB",
+    backgroundColor: "#EFF6FF",
+  },
+  modeTabActiveDest: {
+    borderColor: "#16A34A",
+    backgroundColor: "#F0FDF4",
+  },
+  modeTabText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#64748B",
+  },
+  modeTabTextActivePickup: {
+    color: "#1D4ED8",
+    fontWeight: "800",
+  },
+  modeTabTextActiveDest: {
+    color: "#15803D",
+    fontWeight: "800",
+  },
+  inputWrapper: {
+    marginBottom: 4,
+  },
+  labelRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 6,
+  },
+  coordLabel: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#64748B",
+    fontFamily: Platform.OS === "ios" ? "Courier" : "monospace",
+  },
   label: {
     fontSize: 10,
     fontWeight: "800",
@@ -673,6 +1041,33 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: Colors.text,
   },
+  clearBtn: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: "#E2E8F0",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  clearBtnText: {
+    fontSize: 11,
+    fontWeight: "900",
+    color: "#64748B",
+    lineHeight: 12,
+  },
+  inlineGpsBtn: {
+    backgroundColor: "#EFF6FF",
+    borderWidth: 1,
+    borderColor: "#BFDBFE",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  inlineGpsBtnText: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: "#1D4ED8",
+  },
   suggestionsList: {
     marginTop: 6,
     backgroundColor: "#FFFFFF",
@@ -685,6 +1080,32 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
+  },
+  currentLocationSuggestionItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderBottomWidth: 1.5,
+    borderBottomColor: "#BFDBFE",
+    backgroundColor: "#F0FDF4",
+    gap: 10,
+  },
+  currentLocationIconCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "#DCFCE7",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  currentLocationIconText: {
+    fontSize: 15,
+  },
+  currentLocationTitle: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#15803D",
   },
   suggestionItem: {
     flexDirection: "row",
@@ -707,6 +1128,39 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: "#64748B",
     marginTop: 1,
+  },
+  summaryCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-around",
+    backgroundColor: "#F8FAFC",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    marginBottom: 14,
+    marginTop: 10,
+  },
+  summaryStat: {
+    alignItems: "center",
+  },
+  summaryValue: {
+    fontSize: 16,
+    fontWeight: "900",
+    color: "#0F172A",
+  },
+  summaryLabel: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: "#64748B",
+    marginTop: 2,
+    textTransform: "uppercase",
+  },
+  summaryDivider: {
+    width: 1,
+    height: 28,
+    backgroundColor: "#CBD5E1",
   },
   mapContainer: {
     height: 220,

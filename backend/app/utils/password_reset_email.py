@@ -3,13 +3,26 @@ import os
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from pathlib import Path
+from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 
+# Ensure environment is loaded if not already present
+if not os.getenv("SMTP_EMAIL") or not os.getenv("SMTP_PASSWORD"):
+    for _env_path in [
+        Path(__file__).resolve().parent.parent.parent / ".env",
+        Path.cwd() / "backend" / ".env",
+        Path.cwd() / ".env",
+    ]:
+        if _env_path.is_file():
+            load_dotenv(dotenv_path=_env_path)
+            break
+
 
 def send_password_reset_email(user_email: str, user_name: str, reset_url: str) -> None:
-    sender_email = os.getenv("SMTP_EMAIL")
-    sender_password = os.getenv("SMTP_PASSWORD")
+    sender_email = (os.getenv("SMTP_EMAIL") or "").strip()
+    sender_password = (os.getenv("SMTP_PASSWORD") or "").strip()
     if not sender_email or not sender_password:
         logger.warning(
             "Password-reset email not sent: SMTP_EMAIL/SMTP_PASSWORD are not configured."

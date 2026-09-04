@@ -105,7 +105,7 @@ export default function LocationFlow({ onRouteConfirmed }: LocationFlowProps) {
     };
   }, [searchQuery, activeSearchType, step]);
 
-  const handleCurrentLocation = () => {
+  const handleCurrentLocation = (target: 'pickup' | 'destination' = 'pickup') => {
     if (!navigator.geolocation) {
       alert('Geolocation is not supported by this browser.');
       return;
@@ -113,15 +113,31 @@ export default function LocationFlow({ onRouteConfirmed }: LocationFlowProps) {
 
     setLoadingGps(true);
     navigator.geolocation.getCurrentPosition(
-      (position) => {
+      async (position) => {
         const lat = position.coords.latitude;
         const lng = position.coords.longitude;
-        const currentLocData = { address: 'Current Location (GPS)', lat, lng };
+        let resolvedAddress = `Current Location (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
 
-        if (activeSearchType === 'pickup' || step === 'main') {
+        try {
+          const res = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`
+          );
+          if (res.ok) {
+            const data = await res.json();
+            if (data.display_name) {
+              resolvedAddress = data.display_name;
+            }
+          }
+        } catch {}
+
+        const currentLocData = { address: resolvedAddress, lat, lng };
+
+        if (target === 'pickup' || activeSearchType === 'pickup' || step === 'main') {
           setPickup(currentLocData);
+          setPickupLocation([lat, lng], resolvedAddress);
         } else {
           setDestination(currentLocData);
+          setDestinationLocation([lat, lng], resolvedAddress);
         }
         setLoadingGps(false);
         setStep('main');
@@ -130,9 +146,35 @@ export default function LocationFlow({ onRouteConfirmed }: LocationFlowProps) {
         alert('Unable to retrieve your location. Please allow location access.');
         setLoadingGps(false);
       },
-      { enableHighAccuracy: true }
+      { enableHighAccuracy: true, timeout: 10000 }
     );
   };
+
+  useEffect(() => {
+    // If pickup not yet initialized, attempt to prefetch current location
+    if (pickup.lat === null && typeof navigator !== 'undefined' && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          const lat = pos.coords.latitude;
+          const lng = pos.coords.longitude;
+          let addr = `Current Location (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
+          try {
+            const res = await fetch(
+              `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`
+            );
+            if (res.ok) {
+              const data = await res.json();
+              if (data.display_name) addr = data.display_name;
+            }
+          } catch {}
+          setPickup({ address: addr, lat, lng });
+          setPickupLocation([lat, lng], addr);
+        },
+        () => {},
+        { enableHighAccuracy: false, timeout: 5000 }
+      );
+    }
+  }, []);
 
   const handleSelectPlace = (place: PlaceOption | NominatimResult) => {
   const selected = {
@@ -260,11 +302,18 @@ export default function LocationFlow({ onRouteConfirmed }: LocationFlowProps) {
 
         <div className="space-y-4">
           <button
-            onClick={handleCurrentLocation}
-            className="w-full flex items-center space-x-3 text-left p-3 rounded-xl bg-indigo-50 hover:bg-indigo-100 transition text-indigo-700 font-semibold"
+            onClick={() => handleCurrentLocation(activeSearchType || 'pickup')}
+            className="w-full flex items-center space-x-3 text-left p-3.5 rounded-xl bg-blue-50 hover:bg-blue-100 transition text-blue-700 font-bold border border-blue-200 shadow-sm"
           >
-            <span>📍</span>
-            <span>{loadingGps ? 'Locating...' : 'Use Current Location'}</span>
+            <span className="text-xl">🎯</span>
+            <div className="flex-1">
+              <p className="text-sm font-bold text-blue-800">
+                {loadingGps ? 'Detecting current GPS location...' : 'Use Current Location'}
+              </p>
+              <p className="text-xs text-blue-600 font-normal">
+                Set exact live GPS coordinates & reverse-geocoded address
+              </p>
+            </div>
           </button>
 
           <button
@@ -385,15 +434,26 @@ export default function LocationFlow({ onRouteConfirmed }: LocationFlowProps) {
           setActiveSearchType('pickup');
           setStep('search_pickup');
         }}
-        className="flex items-center rounded-2xl border border-gray-200 bg-gray-50 px-4 py-4 shadow-sm transition hover:border-indigo-500"
+        className="flex items-center rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3.5 shadow-sm transition hover:border-indigo-500 cursor-pointer"
       >
         <span className="mr-3 h-3.5 w-3.5 flex-shrink-0 rounded-full bg-blue-600"></span>
         <div className="flex-1 overflow-hidden">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">From</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">From (Pickup)</p>
           <p className="truncate text-sm font-bold text-gray-800">
-            {pickup.address || 'Current Location'}
+            {pickup.address || 'Select pickup location'}
           </p>
         </div>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            handleCurrentLocation('pickup');
+          }}
+          className="ml-2 flex items-center gap-1.5 rounded-xl bg-blue-100/80 hover:bg-blue-200 text-blue-800 px-3 py-1.5 text-xs font-bold transition border border-blue-200 shrink-0"
+        >
+          <span>🎯</span>
+          <span>{loadingGps ? 'GPS...' : 'Current Location'}</span>
+        </button>
       </div>
 
       <div
@@ -401,11 +461,11 @@ export default function LocationFlow({ onRouteConfirmed }: LocationFlowProps) {
           setActiveSearchType('destination');
           setStep('search_dest');
         }}
-        className="flex items-center rounded-2xl border border-gray-200 bg-gray-50 px-4 py-4 shadow-sm transition hover:border-emerald-500"
+        className="flex items-center rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3.5 shadow-sm transition hover:border-emerald-500 cursor-pointer"
       >
         <span className="mr-3 h-3.5 w-3.5 flex-shrink-0 rounded-full bg-emerald-600"></span>
         <div className="flex-1 overflow-hidden">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">To</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">To (Destination)</p>
           <p className="truncate text-sm font-bold text-gray-800">
             {destination.address || 'Search destination'}
           </p>

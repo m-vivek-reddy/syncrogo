@@ -3,18 +3,32 @@ import os
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from pathlib import Path
+from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
+
+# Ensure environment is loaded if not already present
+if not os.getenv("SMTP_EMAIL") or not os.getenv("SMTP_PASSWORD"):
+    for _env_path in [
+        Path(__file__).resolve().parent.parent.parent / ".env",
+        Path.cwd() / "backend" / ".env",
+        Path.cwd() / ".env",
+    ]:
+        if _env_path.is_file():
+            load_dotenv(dotenv_path=_env_path)
+            break
 
 
 def _send_mail(to_email: str, subject: str, html_body: str) -> bool:
     """Shared SMTP sender. Returns True on success, False on failure."""
-    sender_email = os.getenv("SMTP_EMAIL")
-    sender_password = os.getenv("SMTP_PASSWORD")
+    sender_email = (os.getenv("SMTP_EMAIL") or "").strip()
+    sender_password = (os.getenv("SMTP_PASSWORD") or "").strip()
 
     if not sender_email or not sender_password:
         logger.warning(
-            "Email not sent: SMTP_EMAIL/SMTP_PASSWORD are not configured."
+            "Email not sent to %s: SMTP_EMAIL/SMTP_PASSWORD are not configured.",
+            to_email,
         )
         return False
 
@@ -29,14 +43,17 @@ def _send_mail(to_email: str, subject: str, html_body: str) -> bool:
             server.starttls()
             server.login(sender_email, sender_password)
             server.send_message(msg)
-        logger.info("Email sent to %s", to_email)
+        logger.info("Email sent successfully to %s", to_email)
         return True
     except Exception:
-        logger.exception("Failed to send email to %s", to_email)
+        logger.exception("Failed to send email to %s via SMTP", to_email)
         return False
 
 
 def send_otp_email(user_email: str, user_name: str, otp: str):
+    logger.info("🔑 [OTP] Generating & sending verification code for %s: %s", user_email, otp)
+    print(f"🔑 [OTP DISPATCH] Verification OTP for {user_email}: {otp}", flush=True)
+
     subject = f"{otp} is your SyncroGo Verification Code"
 
     html_body = f"""
