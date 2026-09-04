@@ -9,6 +9,7 @@ import {
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import * as Location from "expo-location";
@@ -55,6 +56,7 @@ type ActiveDriverRideData = {
 
 export default function DriverActiveRideScreen() {
   const { user, mode } = useAuthStore();
+  const { height: windowHeight } = useWindowDimensions();
   const [data, setData] = useState<ActiveDriverRideData | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -425,6 +427,7 @@ export default function DriverActiveRideScreen() {
 
   const isRideStarted = data?.status === "started" || data?.status === "STARTED";
   const isRideCompleted = data?.status === "completed" || data?.status === "COMPLETED";
+  const mapHeight = isRideStarted ? Math.max(520, windowHeight - 190) : 380;
 
   const mappedPassengers: DriverPassengerMarker[] = (data?.passengers || []).map(p => ({
     booking_id: p.booking_id,
@@ -461,7 +464,7 @@ export default function DriverActiveRideScreen() {
         passengers={mappedPassengers}
         rideStarted={isRideStarted}
         vehicleType={data?.vehicle_type}
-        height={380}
+        height={mapHeight}
       />
 
       {/* Manual GPS Refresh Button */}

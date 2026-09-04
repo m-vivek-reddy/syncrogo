@@ -236,8 +236,13 @@ export default function DriverRideMap({
         )}
 
         {(() => {
-          if (!driverCurrentLocation || !Number.isFinite(driverCurrentLocation.latitude)) return null;
-          const pos = rideStarted ? (smoothed.position ?? driverCurrentLocation) : driverCurrentLocation;
+          const markerLocation = driverCurrentLocation ?? (
+            rideStarted && validDriverStart
+              ? { latitude: validDriverStart.latitude, longitude: validDriverStart.longitude }
+              : null
+          );
+          if (!markerLocation || !Number.isFinite(markerLocation.latitude)) return null;
+          const pos = rideStarted ? (smoothed.position ?? markerLocation) : markerLocation;
           return (
             <Marker
               coordinate={pos}

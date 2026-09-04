@@ -213,7 +213,7 @@ def forgot_password(
 
     user = (
         db.query(User)
-        .filter(User.email == data.email)
+        .filter(func.lower(User.email) == str(data.email).lower())
         .first()
     )
 
@@ -271,7 +271,7 @@ def reset_password(
 
     user = (
         db.query(User)
-        .filter(User.email == email)
+        .filter(func.lower(User.email) == email.lower())
         .first()
         if email
         else None
