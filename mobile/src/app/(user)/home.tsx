@@ -29,7 +29,7 @@ type ActiveRide = {
 };
 
 export default function Home() {
-  const { mode, setMode } = useAuthStore();
+  const { mode } = useAuthStore();
   const isDriver = mode === "driver";
 
   const [passengerBookings, setPassengerBookings] = useState<PassengerBooking[]>([]);

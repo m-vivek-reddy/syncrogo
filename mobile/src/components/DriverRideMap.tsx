@@ -171,7 +171,7 @@ export default function DriverRideMap({
       },
       { duration: 600 }
     );
-  }, [rideStarted, followMode, smoothed.position?.latitude, smoothed.position?.longitude, smoothed.heading]);
+  }, [rideStarted, followMode, smoothed.position, smoothed.heading]);
 
   const handleRecenter = () => {
     setFollowMode(true);

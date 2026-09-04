@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   Alert,
   Linking,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -57,6 +56,7 @@ export default function RideNavigation() {
   const [sharingLocation, setSharingLocation] = useState(false);
   const [lastSharedAt, setLastSharedAt] = useState<string | null>(null);
   const watchRef = useRef<Location.LocationSubscription | null>(null);
+  const hasLoadedRef = useRef(false);
 
   const shareLocation = useCallback(async () => {
     if (!bookingId) return;
@@ -82,14 +82,13 @@ export default function RideNavigation() {
   }, [bookingId]);
 
   // Share live location while booking is active
-  useEffect(() => {
-    if (!data) return;
-    const active = ![
-      "COMPLETED",
-      "CANCELLED",
-    ].includes((data.status || "").toUpperCase());
+  const isBookingActive = Boolean(
+    data &&
+      !["COMPLETED", "CANCELLED"].includes((data.status || "").toUpperCase())
+  );
 
-    if (!active) {
+  useEffect(() => {
+    if (!isBookingActive) {
       watchRef.current?.remove();
       watchRef.current = null;
       setSharingLocation(false);
@@ -127,18 +126,19 @@ export default function RideNavigation() {
       watchRef.current = null;
       setSharingLocation(false);
     };
-  }, [data?.status, bookingId, shareLocation]);
+  }, [isBookingActive, shareLocation]);
 
   const loadLiveBooking = useCallback(
     async (isManualRefresh = false) => {
       if (!bookingId) return;
       try {
         if (isManualRefresh) setRefreshing(true);
-        else if (!data) setLoading(true);
+        else if (!hasLoadedRef.current) setLoading(true);
 
         const res = await api.get(`/api/v1/bookings/${bookingId}/live`);
         if (res.data?.success && res.data?.data) {
           setData(res.data.data);
+          hasLoadedRef.current = true;
           setError(null);
         } else {
           setError("Booking details not available.");
@@ -152,7 +152,7 @@ export default function RideNavigation() {
         setRefreshing(false);
       }
     },
-    [bookingId, data]
+    [bookingId]
   );
 
   useFocusEffect(

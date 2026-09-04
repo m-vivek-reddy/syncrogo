@@ -37,9 +37,6 @@ export default function DriverRideMapWeb({
     p => p && Number.isFinite(Number(p.latitude)) && Number.isFinite(Number(p.longitude)) && p.status !== "CANCELLED" && p.status !== "REJECTED"
   );
 
-  // Active upcoming passengers (not completed)
-  const activePassengers = validPassengers.filter(p => p.status !== "COMPLETED");
-
   // Calculate Base Route (Start -> Destination)
   useEffect(() => {
     let active = true;

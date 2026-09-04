@@ -1,4 +1,4 @@
-﻿import * as SecureStore from "expo-secure-store";
+import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
 import { create } from "zustand";
 

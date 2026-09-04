@@ -20,7 +20,7 @@ type PaymentMethod = {
 };
 
 export default function PaymentsScreen() {
-  const [balance, setBalance] = useState("₹0.00");
+  const [balance] = useState("₹0.00");
   const [methods, setMethods] = useState<PaymentMethod[]>([]);
 
   const loadPaymentData = useCallback(async () => {

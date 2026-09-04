@@ -94,7 +94,7 @@ function useRouteCalculator(
           result.durationMinutes,
           result.coordinates
         );
-      } catch (error) {
+      } catch {
         if (cancelled) return;
 
         const fallbackDistance = Math.max(0.1, Math.round(directDistance * 100) / 100);
@@ -178,9 +178,9 @@ export default function LocationPickerMap({
   const initialHtml = useMemo(() => {
     const p = pickup ? JSON.stringify([pickup.latitude, pickup.longitude]) : "null";
     const d = destination ? JSON.stringify([destination.latitude, destination.longitude]) : "null";
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
     return LEAFLET_HTML_HEAD.replace("__PICKUP__", p).replace("__DEST__", d).replace("__ROUTE__", "null");
-  }, []);
+  }, [destination, pickup]);
 
   /* Push updated markers/route into the WebView. */
   useEffect(() => {

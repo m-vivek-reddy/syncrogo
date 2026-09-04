@@ -1,5 +1,5 @@
-import React, { useEffect, useRef, useMemo } from "react";
-import { StyleSheet, View, Text, Pressable } from "react-native";
+import React, { useEffect, useMemo } from "react";
+import { StyleSheet, View } from "react-native";
 import { fetchMultiPointRoute, type Coordinate } from "../services/routing";
 
 export type PassengerMarker = {
@@ -30,7 +30,6 @@ export default function PassengerRideMapWeb({
   rideStatus,
   height = 360,
 }: PassengerRideMapProps) {
-  const iframeRef = useRef<HTMLIFrameElement>(null);
   const [routeCoords, setRouteCoordinates] = React.useState<Coordinate[]>([]);
 
   // Filter valid coordinates

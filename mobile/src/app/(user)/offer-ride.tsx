@@ -81,7 +81,6 @@ export default function OfferRideScreen() {
 
   // Driver documents verification state
   const [docsPending, setDocsPending] = useState(false);
-  const [docsChecked, setDocsChecked] = useState(false);
   const [docsPendingMessage, setDocsPendingMessage] = useState<string | null>(null);
   const [docsChecking, setDocsChecking] = useState(false);
 
@@ -161,7 +160,7 @@ export default function OfferRideScreen() {
   const checkDriverDocuments = useCallback(async () => {
     try {
       const res = await api.get("/api/v1/documents/");
-      const docs: Array<{ document_type: string; status: string }> =
+      const docs: { document_type: string; status: string }[] =
         res.data?.documents || (Array.isArray(res.data) ? res.data : []);
 
       const pendingDocs = docs.filter(
@@ -193,8 +192,6 @@ export default function OfferRideScreen() {
       }
     } catch {
       // If network fails, do not aggressively block local testing
-    } finally {
-      setDocsChecked(true);
     }
   }, []);
 
@@ -435,7 +432,6 @@ export default function OfferRideScreen() {
       } catch {
         // Fall back to existing distance/fare values if routing fails.
         if (distanceKm) {
-          const rideType = type === "car" ? "carpool" : "bike";
           const ratePerKm = type === "car" ? 10 : 5;
           const localTotal = Math.round(distanceKm * ratePerKm);
           setFare(String(Math.ceil(localTotal / newSeats)));
@@ -488,7 +484,7 @@ export default function OfferRideScreen() {
     let submitBlockMessage = docsPendingMessage;
     try {
       const res = await api.get("/api/v1/documents/");
-      const docs: Array<{ document_type: string; status: string }> =
+      const docs: { document_type: string; status: string }[] =
         res.data?.documents || (Array.isArray(res.data) ? res.data : []);
       const pendingDocs = docs.filter(
         (d) => (d.status || "").toLowerCase() === "pending"

@@ -2,7 +2,6 @@ import {
   ActivityIndicator,
   Alert,
   Image,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -10,7 +9,7 @@ import {
   Text,
   View,
 } from "react-native";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { router, useFocusEffect } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
@@ -35,7 +34,7 @@ export default function Profile() {
   const [profile, setProfile] = useState(user);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [documents, setDocuments] = useState<
-    Array<{ document_type: string; status: string }>
+    { document_type: string; status: string }[]
   >([]);
   const isDriver = mode === "driver";
 
