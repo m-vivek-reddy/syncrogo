@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { StyleSheet, View, Text, Pressable } from "react-native";
-import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from "react-native-maps";
+import MapView, { Marker, Polyline } from "react-native-maps";
 import { distanceToRouteMeters, fetchMultiPointRoute, type Coordinate } from "../services/routing";
 import { useSmoothedVehicle, VehicleBody } from "./NavigationVehicle";
 
@@ -181,7 +181,7 @@ export default function DriverRideMap({
     <View style={[styles.container, { height }]}>
       <MapView
         ref={mapRef}
-        provider={PROVIDER_GOOGLE}
+
         style={styles.map}
         initialRegion={initialRegion}
         showsUserLocation={!rideStarted}

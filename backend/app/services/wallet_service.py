@@ -5,20 +5,31 @@ from fastapi import HTTPException, status
 from app.models.wallet import Wallet, Transaction, TransactionType, TransactionStatus
 
 
-def get_or_create_wallet(db: Session, user_id: int) -> Wallet:
+def get_or_create_wallet(db: Session, user_id: int, commit: bool = True) -> Wallet:
     """Retrieve a user's wallet, or create one if it doesn't exist."""
     wallet = db.query(Wallet).filter(Wallet.user_id == user_id).first()
     if not wallet:
         wallet = Wallet(user_id=user_id, balance=0.0, pending_balance=0.0)
         db.add(wallet)
-        db.commit()
+        db.flush()
+        if commit:
+            db.commit()
         db.refresh(wallet)
     return wallet
 
 
-def credit_driver_earnings(db: Session, driver_id: int, amount: float, ride_id: str) -> Wallet:
-    """Credit a driver's wallet after a successful ride payment and record the transaction."""
-    wallet = get_or_create_wallet(db, driver_id)
+def credit_driver_earnings(db: Session, driver_id: int, amount: float, ride_id: str, commit: bool = True) -> Wallet:
+    """Credit a driver's wallet after a successful ride payment and record the transaction.
+
+    Pass commit=False when the credit must be atomic with an outer transaction
+    (e.g. marking a payment as PAID); the caller then owns the commit/rollback.
+    """
+    if amount <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Credit amount must be positive."
+        )
+    wallet = get_or_create_wallet(db, driver_id, commit=commit)
     wallet.balance += amount
 
     transaction = Transaction(
@@ -30,8 +41,9 @@ def credit_driver_earnings(db: Session, driver_id: int, amount: float, ride_id: 
     )
 
     db.add(transaction)
-    db.commit()
-    db.refresh(wallet)
+    if commit:
+        db.commit()
+        db.refresh(wallet)
     return wallet
 
 

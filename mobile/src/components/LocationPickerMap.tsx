@@ -1,26 +1,6 @@
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-import {
-  ActivityIndicator,
-  Alert,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
-import MapView, {
-  Circle,
-  MapPressEvent,
-  Marker,
-  Polyline,
-  PROVIDER_GOOGLE,
-  Region,
-} from "react-native-maps";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import * as Location from "expo-location";
 
 import {
@@ -46,24 +26,9 @@ type LocationPickerMapProps = {
   ) => void;
 };
 
-const DEFAULT_REGION: Region = {
-  latitude: 17.4435,
-  longitude: 78.3772,
-  latitudeDelta: 0.12,
-  longitudeDelta: 0.12,
-};
-
-function estimateDurationMinutes(
-  distanceKm: number
-): number {
-  if (distanceKm <= 0) {
-    return 0;
-  }
-
-  return Math.max(
-    1,
-    Math.round((distanceKm / 30) * 60)
-  );
+function estimateDurationMinutes(distanceKm: number): number {
+  if (distanceKm <= 0) return 0;
+  return Math.max(1, Math.round((distanceKm / 30) * 60));
 }
 
 function useRouteCalculator(
@@ -74,7 +39,6 @@ function useRouteCalculator(
     durationMinutes: number,
     coordinates: Coordinate[]
   ) => void,
-  mapRef: React.RefObject<MapView | null>,
   vehicleType?: string
 ) {
   const [routeCoordinates, setRouteCoordinates] = useState<Coordinate[]>([]);
@@ -105,10 +69,7 @@ function useRouteCalculator(
         return;
       }
 
-      if (routeKey === lastRouteKeyRef.current) {
-        return; // Skip duplicate calculation for identical coordinates
-      }
-
+      if (routeKey === lastRouteKeyRef.current) return;
       lastRouteKeyRef.current = routeKey;
 
       const directDistance = haversineDistanceKm(pickup, destination);
@@ -125,10 +86,7 @@ function useRouteCalculator(
         setRouteError(null);
 
         const result = await fetchRoadRoute(pickup, destination, vehicleType);
-
-        if (cancelled) {
-          return;
-        }
+        if (cancelled) return;
 
         setRouteCoordinates(result.coordinates);
         onRouteChangeRef.current(
@@ -137,36 +95,17 @@ function useRouteCalculator(
           result.coordinates
         );
       } catch (error) {
-        if (cancelled) {
-          return;
-        }
+        if (cancelled) return;
 
-        console.log("Road route error:", error);
-
-        const fallbackDistance = Math.max(
-          0.1,
-          Math.round(directDistance * 100) / 100
-        );
-
+        const fallbackDistance = Math.max(0.1, Math.round(directDistance * 100) / 100);
         const fallbackDuration = estimateDurationMinutes(fallbackDistance);
-
         const fallbackCoordinates = [pickup, destination];
 
         setRouteCoordinates(fallbackCoordinates);
-
-        setRouteError(
-          "Road route temporarily unavailable. Showing direct route."
-        );
-
-        onRouteChangeRef.current(
-          fallbackDistance,
-          fallbackDuration,
-          fallbackCoordinates
-        );
+        setRouteError("Road route temporarily unavailable. Showing direct route.");
+        onRouteChangeRef.current(fallbackDistance, fallbackDuration, fallbackCoordinates);
       } finally {
-        if (!cancelled) {
-          setRouteLoading(false);
-        }
+        if (!cancelled) setRouteLoading(false);
       }
     };
 
@@ -180,6 +119,35 @@ function useRouteCalculator(
   return { routeCoordinates, routeLoading, routeError };
 }
 
+/* To be continued: Leaflet HTML template + component */
+
+const LEAFLET_HTML_HEAD = `<!DOCTYPE html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no"/><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><style>html,body,#map{width:100%;height:100%;margin:0;padding:0;background:#e2e8f0;}#map{touch-action:none;}.sg-pin{border-radius:50%;border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4);}.sg-pickup{background:#2563EB;}.sg-dest{background:#16A34A;}</style></head><body><div id="map"></div><script>
+var map = L.map('map', { zoomControl: false, attributionControl: false }).setView([17.4435, 78.3772], 13);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { maxZoom: 19, subdomains: 'abcd' }).addTo(map);
+var pickupMarker = null, destMarker = null, routeLine = null;
+function pinIcon(cls) { return L.divIcon({ className: '', html: '<div class="sg-pin ' + cls + '" style="width:22px;height:22px;"></div>', iconSize: [22, 22], iconAnchor: [11, 11] }); }
+function renderMap(pickup, destination, route, fit) {
+  if (pickupMarker) { map.removeLayer(pickupMarker); pickupMarker = null; }
+  if (destMarker) { map.removeLayer(destMarker); destMarker = null; }
+  if (routeLine) { map.removeLayer(routeLine); routeLine = null; }
+  if (pickup) pickupMarker = L.marker([pickup[0], pickup[1]], { icon: pinIcon('sg-pickup') }).addTo(map);
+  if (destination) destMarker = L.marker([destination[0], destination[1]], { icon: pinIcon('sg-dest') }).addTo(map);
+  if (route && route.length >= 2) routeLine = L.polyline(route, { color: '#2563EB', weight: 5 }).addTo(map);
+  if (fit) {
+    var pts = (route && route.length >= 2) ? route.slice() : [];
+    if (pickup) pts.push(pickup);
+    if (destination) pts.push(destination);
+    if (pts.length === 1) map.setView(pts[0], 15);
+    else if (pts.length >= 2) map.fitBounds(L.latLngBounds(pts), { padding: [40, 40] });
+  }
+}
+map.on('click', function (e) {
+  window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'tap', lat: e.latlng.lat, lng: e.latlng.lng }));
+});
+window.updateMap = renderMap;
+renderMap(__PICKUP__, __DEST__, __ROUTE__, true);
+</script></body></html>`;
+
 export default function LocationPickerMap({
   pickup,
   destination,
@@ -189,702 +157,179 @@ export default function LocationPickerMap({
   onDestinationChange,
   onRouteChange,
 }: LocationPickerMapProps) {
-  const mapRef =
-    useRef<MapView | null>(null);
+  const webRef = useRef<WebView | null>(null);
 
-  const [region, setRegion] =
-    useState<Region>(
-      DEFAULT_REGION
-    );
+  const [mapReady, setMapReady] = useState(false);
+  const [hasInteracted, setHasInteracted] = useState(false);
+  const [locationLoading, setLocationLoading] = useState(false);
 
-  const [userLocation, setUserLocation] =
-    useState<Coordinate | null>(null);
+  const { routeCoordinates, routeLoading, routeError } = useRouteCalculator(
+    pickup,
+    destination,
+    onRouteChange,
+    vehicleType
+  );
 
-  const [locationAccuracy, setLocationAccuracy] =
-    useState<number | null>(null);
-
-  const [locationLoading, setLocationLoading] =
-    useState(false);
-
-  const [mapReady, setMapReady] =
-    useState(false);
-
-  const { routeCoordinates, routeLoading, routeError } =
-    useRouteCalculator(
-      pickup,
-      destination,
-      onRouteChange,
-      mapRef,
-      vehicleType
-    );
-
-  const loadCurrentLocation =
-    useCallback(async () => {
-      try {
-        setLocationLoading(true);
-
-        const {
-          status,
-        } =
-          await Location.requestForegroundPermissionsAsync();
-
-        if (status !== "granted") {
-          Alert.alert(
-            "Location Permission",
-            "Please allow location permission to use your current location."
-          );
-          return;
-        }
-
-        const location =
-          await Location.getCurrentPositionAsync(
-            {
-              accuracy:
-                Location.Accuracy.High,
-              mayShowUserSettingsDialog:
-                true,
-            }
-          );
-
-        const coordinate: Coordinate = {
-          latitude:
-            location.coords.latitude,
-          longitude:
-            location.coords.longitude,
-        };
-
-        setUserLocation(
-          coordinate
-        );
-
-        setLocationAccuracy(
-          location.coords
-            .accuracy ?? null
-        );
-
-        if (!pickup) {
-          onPickupChange(
-            coordinate
-          );
-        }
-
-        mapRef.current?.animateToRegion(
-          {
-            latitude:
-              coordinate.latitude,
-            longitude:
-              coordinate.longitude,
-            latitudeDelta: 0.035,
-            longitudeDelta: 0.035,
-          },
-          700
-        );
-      } catch (error) {
-        console.log(
-          "LocationPickerMap GPS error:",
-          error
-        );
-      } finally {
-        setLocationLoading(
-          false
-        );
-      }
-    }, []);
-
+  const selectionModeRef = useRef(selectionMode);
   useEffect(() => {
-    void loadCurrentLocation();
+    selectionModeRef.current = selectionMode;
+  }, [selectionMode]);
+
+  const initialHtml = useMemo(() => {
+    const p = pickup ? JSON.stringify([pickup.latitude, pickup.longitude]) : "null";
+    const d = destination ? JSON.stringify([destination.latitude, destination.longitude]) : "null";
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return LEAFLET_HTML_HEAD.replace("__PICKUP__", p).replace("__DEST__", d).replace("__ROUTE__", "null");
   }, []);
 
-  const handleMapPress =
-    useCallback(
-      (event: MapPressEvent) => {
-        const coordinate =
-          event?.nativeEvent
-            ?.coordinate;
-
-        if (
-          !coordinate ||
-          !Number.isFinite(
-            Number(
-              coordinate.latitude
-            )
-          ) ||
-          !Number.isFinite(
-            Number(
-              coordinate.longitude
-            )
-          )
-        ) {
-          return;
-        }
-
-        const selectedCoordinate: Coordinate =
-        {
-          latitude: Number(
-            coordinate.latitude
-          ),
-          longitude: Number(
-            coordinate.longitude
-          ),
-        };
-
-        if (
-          selectionMode ===
-          "pickup"
-        ) {
-          onPickupChange(
-            selectedCoordinate
-          );
-        } else {
-          onDestinationChange(
-            selectedCoordinate
-          );
-        }
-      },
-      [
-        onDestinationChange,
-        onPickupChange,
-        selectionMode,
-      ]
+  /* Push updated markers/route into the WebView. */
+  useEffect(() => {
+    if (!mapReady) return;
+    const p = pickup ? JSON.stringify([pickup.latitude, pickup.longitude]) : "null";
+    const d = destination ? JSON.stringify([destination.latitude, destination.longitude]) : "null";
+    const r =
+      routeCoordinates.length >= 2
+        ? JSON.stringify(routeCoordinates.map((c) => [c.latitude, c.longitude]))
+        : "null";
+    const fit = hasInteracted ? "false" : "true";
+    webRef.current?.injectJavaScript(
+      `window.updateMap(${p}, ${d}, ${r}, ${fit}); true;`
     );
+  }, [mapReady, pickup, destination, routeCoordinates, hasInteracted]);
 
-  const focusLocation =
-    useCallback(
-      (
-        coordinate:
-          | Coordinate
-          | null
-      ) => {
-        if (!coordinate) {
-          return;
-        }
-
-        mapRef.current?.animateToRegion(
-          {
-            latitude:
-              coordinate.latitude,
-            longitude:
-              coordinate.longitude,
-            latitudeDelta: 0.035,
-            longitudeDelta: 0.035,
-          },
-          500
-        );
-      },
-      []
-    );
-
-  const initialRegion =
-    useMemo(() => {
-      if (pickup) {
-        return {
-          latitude:
-            pickup.latitude,
-          longitude:
-            pickup.longitude,
-          latitudeDelta: 0.035,
-          longitudeDelta: 0.035,
-        };
-      }
-
-      return DEFAULT_REGION;
-    }, [pickup]);
-
-  const handleFitRoute =
-    useCallback(() => {
-      if (
-        pickup &&
-        destination
-      ) {
-        const coordinates =
-          routeCoordinates.length >=
-            2
-            ? routeCoordinates
-            : [
-              pickup,
-              destination,
-            ];
-
-        mapRef.current?.fitToCoordinates(
-          coordinates,
-          {
-            edgePadding: {
-              top: 100,
-              right: 50,
-              bottom: 130,
-              left: 50,
-            },
-            animated: true,
+  const handleWebViewMessage = useCallback(
+    (event: WebViewMessageEvent) => {
+      try {
+        const data = JSON.parse(event.nativeEvent.data);
+        if (
+          data.type === "tap" &&
+          Number.isFinite(Number(data.lat)) &&
+          Number.isFinite(Number(data.lng))
+        ) {
+          setHasInteracted(true);
+          const coordinate: Coordinate = {
+            latitude: Number(data.lat),
+            longitude: Number(data.lng),
+          };
+          if (selectionModeRef.current === "pickup") {
+            onPickupChange(coordinate);
+          } else {
+            onDestinationChange(coordinate);
           }
+        }
+      } catch {
+        // Ignore malformed messages
+      }
+    },
+    [onDestinationChange, onPickupChange]
+  );
+
+  const loadCurrentLocation = useCallback(async () => {
+    try {
+      setLocationLoading(true);
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") return;
+
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+      });
+
+      const coordinate: Coordinate = {
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+      };
+      setHasInteracted(true);
+
+      if (!pickup && selectionModeRef.current === "pickup") {
+        onPickupChange(coordinate);
+      } else {
+        webRef.current?.injectJavaScript(
+          `map.setView([${coordinate.latitude}, ${coordinate.longitude}], 15); true;`
         );
-
-        return;
       }
+    } catch (error) {
+      console.log("LocationPickerMap GPS error:", error);
+    } finally {
+      setLocationLoading(false);
+    }
+  }, [onPickupChange, pickup]);
 
-      if (pickup) {
-        focusLocation(pickup);
-        return;
-      }
-
-      if (userLocation) {
-        focusLocation(
-          userLocation
-        );
-        return;
-      }
-
-      mapRef.current?.animateToRegion(
-        DEFAULT_REGION,
-        500
-      );
-    }, [
-      destination,
-      focusLocation,
-      pickup,
-      routeCoordinates,
-      userLocation,
-    ]);
-
-  const handleZoomIn =
-    useCallback(() => {
-      mapRef.current?.animateToRegion(
-        {
-          ...region,
-          latitudeDelta:
-            Math.max(
-              region.latitudeDelta *
-              0.5,
-              0.001
-            ),
-          longitudeDelta:
-            Math.max(
-              region.longitudeDelta *
-              0.5,
-              0.001
-            ),
-        },
-        300
-      );
-    }, [region]);
-
-  const handleZoomOut =
-    useCallback(() => {
-      mapRef.current?.animateToRegion(
-        {
-          ...region,
-          latitudeDelta:
-            Math.min(
-              region.latitudeDelta *
-              2,
-              10
-            ),
-          longitudeDelta:
-            Math.min(
-              region.longitudeDelta *
-              2,
-              10
-            ),
-        },
-        300
-      );
-    }, [region]);
+  const handleZoom = useCallback((delta: number) => {
+    webRef.current?.injectJavaScript(
+      `map.setZoom(map.getZoom() + ${delta}); true;`
+    );
+  }, []);
 
   return (
     <View style={styles.container}>
-      <MapView
-        ref={mapRef}
-        provider={PROVIDER_GOOGLE}
+      <WebView
+        ref={webRef}
+        source={{ html: initialHtml }}
         style={styles.map}
-        initialRegion={
-          initialRegion
-        }
-        showsUserLocation
-        showsMyLocationButton={false}
-        showsCompass
-        showsScale
-        showsBuildings
-        showsTraffic={false}
-        loadingEnabled
-        loadingIndicatorColor="#2563EB"
-        loadingBackgroundColor="#E2E8F0"
-        moveOnMarkerPress={false}
-        onMapReady={() => {
-          console.log(
-            "SyncroGo map is ready"
-          );
-          setMapReady(true);
-        }}
-        onPress={handleMapPress}
-        onRegionChangeComplete={
-          setRegion
-        }
-      >
-        {userLocation &&
-          locationAccuracy !==
-          null && (
-            <Circle
-              center={
-                userLocation
-              }
-              radius={Math.max(
-                10,
-                locationAccuracy
-              )}
-              fillColor="rgba(37,99,235,0.12)"
-              strokeColor="rgba(37,99,235,0.35)"
-              strokeWidth={1}
-            />
-          )}
+        originWhitelist={["*"]}
+        onMessage={handleWebViewMessage}
+        onLoadEnd={() => setMapReady(true)}
+        javaScriptEnabled
+        domStorageEnabled
+        geolocationEnabled
+        setSupportMultipleWindows={false}
+        androidLayerType="hardware"
+      />
 
-        {pickup && (
-          <Marker
-            coordinate={pickup}
-            title="Pickup"
-            description="Ride pickup location"
-            pinColor="#2563EB"
-            onPress={() =>
-              focusLocation(
-                pickup
-              )
-            }
-          >
-            <View
-              style={
-                styles.pickupMarker
-              }
-            >
-              <View
-                style={
-                  styles.pickupMarkerInner
-                }
-              />
-            </View>
-          </Marker>
-        )}
-
-        {destination && (
-          <Marker
-            coordinate={
-              destination
-            }
-            title="Destination"
-            description="Ride destination"
-            pinColor="#16A34A"
-            onPress={() =>
-              focusLocation(
-                destination
-              )
-            }
-          >
-            <View
-              style={
-                styles.destinationMarker
-              }
-            >
-              <View
-                style={
-                  styles.destinationMarkerInner
-                }
-              />
-            </View>
-          </Marker>
-        )}
-
-        {routeCoordinates.length >=
-          2 && (
-            <Polyline
-              coordinates={
-                routeCoordinates
-              }
-              strokeColor="#2563EB"
-              strokeWidth={5}
-              lineCap="round"
-              lineJoin="round"
-              geodesic={false}
-            />
-          )}
-      </MapView>
-
-      <View
-        style={styles.topOverlay}
-      >
-        <View
-          style={
-            styles.instructionBox
-          }
-        >
-          <Text
-            style={
-              styles.instructionTitle
-            }
-          >
-            {selectionMode ===
-              "pickup"
-              ? "📍 Select Pickup"
-              : "🏁 Select Destination"}
+      <View style={styles.topOverlay} pointerEvents="none">
+        <View style={styles.instructionBox}>
+          <Text style={styles.instructionTitle}>
+            {selectionMode === "pickup" ? "📍 Select Pickup" : "🏁 Select Destination"}
           </Text>
-
-          <Text
-            style={
-              styles.instructionText
-            }
-          >
-            Tap anywhere on the
-            map to choose your{" "}
-            {selectionMode ===
-              "pickup"
-              ? "pickup point"
-              : "destination"}
-            .
+          <Text style={styles.instructionText}>
+            Tap anywhere on the map to choose your{" "}
+            {selectionMode === "pickup" ? "pickup point" : "destination"}.
           </Text>
         </View>
       </View>
 
-      {locationAccuracy !==
-        null && (
-          <View
-            style={
-              styles.accuracyBadge
-            }
-          >
-            <Text
-              style={
-                styles.accuracyText
-              }
-            >
-              GPS ±
-              {Math.round(
-                locationAccuracy
-              )}
-              m
-            </Text>
-          </View>
+      <View style={styles.controls}>
+        <Pressable onPress={() => handleZoom(1)} style={styles.controlButton}>
+          <Text style={styles.controlText}>+</Text>
+        </Pressable>
+        <Pressable onPress={() => handleZoom(-1)} style={styles.controlButton}>
+          <Text style={styles.controlText}>−</Text>
+        </Pressable>
+      </View>
+
+      <Pressable
+        onPress={() => void loadCurrentLocation()}
+        disabled={locationLoading}
+        style={styles.gpsButton}
+      >
+        {locationLoading ? (
+          <ActivityIndicator size="small" color="#2563EB" />
+        ) : (
+          <Text style={styles.gpsText}>🎯</Text>
         )}
+      </Pressable>
 
       {!mapReady && (
-        <View
-          style={
-            styles.mapLoadingOverlay
-          }
-          pointerEvents="none"
-        >
-          <View
-            style={
-              styles.mapLoadingBox
-            }
-          >
-            <ActivityIndicator
-              size="small"
-              color="#2563EB"
-            />
-
-            <Text
-              style={
-                styles.mapLoadingText
-              }
-            >
-              Loading map...
-            </Text>
+        <View style={styles.mapLoadingOverlay} pointerEvents="none">
+          <View style={styles.mapLoadingBox}>
+            <ActivityIndicator size="small" color="#2563EB" />
+            <Text style={styles.mapLoadingText}>Loading map...</Text>
           </View>
         </View>
       )}
 
       {routeLoading && (
-        <View
-          style={
-            styles.routeLoadingBox
-          }
-        >
-          <ActivityIndicator
-            size="small"
-            color="#2563EB"
-          />
-
-          <Text
-            style={
-              styles.routeLoadingText
-            }
-          >
-            Calculating road
-            route...
-          </Text>
+        <View style={styles.routeLoadingBox}>
+          <ActivityIndicator size="small" color="#2563EB" />
+          <Text style={styles.routeLoadingText}>Calculating road route...</Text>
         </View>
       )}
 
-      {!routeLoading &&
-        routeError && (
-          <View
-            style={
-              styles.routeErrorBox
-            }
-          >
-            <Text
-              style={
-                styles.routeErrorText
-              }
-            >
-              ⚠️ {routeError}
-            </Text>
-          </View>
-        )}
-
-      <View
-        style={styles.controls}
-      >
-        <Pressable
-          onPress={
-            handleFitRoute
-          }
-          style={
-            styles.controlButton
-          }
-          accessibilityLabel="Fit route"
-        >
-          <Text
-            style={
-              styles.controlText
-            }
-          >
-            ⛶
-          </Text>
-        </Pressable>
-
-        <Pressable
-          onPress={
-            handleZoomIn
-          }
-          style={
-            styles.controlButton
-          }
-          accessibilityLabel="Zoom in"
-        >
-          <Text
-            style={
-              styles.controlText
-            }
-          >
-            +
-          </Text>
-        </Pressable>
-
-        <Pressable
-          onPress={
-            handleZoomOut
-          }
-          style={
-            styles.controlButton
-          }
-          accessibilityLabel="Zoom out"
-        >
-          <Text
-            style={
-              styles.controlText
-            }
-          >
-            −
-          </Text>
-        </Pressable>
-      </View>
-
-      <Pressable
-        onPress={() =>
-          void loadCurrentLocation()
-        }
-        disabled={
-          locationLoading
-        }
-        style={[
-          styles.gpsButton,
-          locationLoading &&
-          styles.gpsButtonDisabled,
-        ]}
-        accessibilityLabel="Current location"
-      >
-        {locationLoading ? (
-          <ActivityIndicator
-            size="small"
-            color="#2563EB"
-          />
-        ) : (
-          <Text
-            style={
-              styles.gpsText
-            }
-          >
-            🎯
-          </Text>
-        )}
-      </Pressable>
-
-      {pickup &&
-        destination && (
-          <View
-            style={
-              styles.bottomOverlay
-            }
-          >
-            <View
-              style={
-                styles.routeSummary
-              }
-            >
-              <View
-                style={
-                  styles.summaryItem
-                }
-              >
-                <Text
-                  style={
-                    styles.summaryValue
-                  }
-                >
-                  {routeCoordinates.length >=
-                    2
-                    ? "✓"
-                    : "..."}
-                </Text>
-
-                <Text
-                  style={
-                    styles.summaryLabel
-                  }
-                >
-                  Route
-                </Text>
-              </View>
-
-              <View
-                style={
-                  styles.summaryDivider
-                }
-              />
-
-              <View
-                style={
-                  styles.summaryItem
-                }
-              >
-                <Text
-                  style={
-                    styles.summaryValue
-                  }
-                >
-                  {routeLoading
-                    ? "..."
-                    : "Ready"}
-                </Text>
-
-                <Text
-                  style={
-                    styles.summaryLabel
-                  }
-                >
-                  Status
-                </Text>
-              </View>
-            </View>
-          </View>
-        )}
+      {!routeLoading && routeError && (
+        <View style={styles.routeErrorBox}>
+          <Text style={styles.routeErrorText}>⚠️ {routeError}</Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -899,75 +344,41 @@ const styles = StyleSheet.create({
     backgroundColor: "#E2E8F0",
     position: "relative",
   },
-
   map: {
     ...StyleSheet.absoluteFillObject,
   },
-
   topOverlay: {
     position: "absolute",
     top: 12,
     left: 12,
     right: 70,
   },
-
   instructionBox: {
-    backgroundColor:
-      "rgba(255,255,255,0.96)",
+    backgroundColor: "rgba(255,255,255,0.96)",
     borderRadius: 14,
     paddingHorizontal: 12,
     paddingVertical: 9,
     borderWidth: 1,
     borderColor: "#E2E8F0",
-    shadowColor: "#000000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.12,
-    shadowRadius: 5,
     elevation: 4,
   },
-
   instructionTitle: {
     fontSize: 12,
     fontWeight: "900",
     color: "#0F172A",
   },
-
   instructionText: {
     marginTop: 2,
     fontSize: 10,
     fontWeight: "600",
     color: "#64748B",
   },
-
-  accuracyBadge: {
-    position: "absolute",
-    top: 82,
-    right: 12,
-    backgroundColor:
-      "rgba(255,255,255,0.95)",
-    borderRadius: 10,
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    borderWidth: 1,
-    borderColor: "#BBF7D0",
-  },
-
-  accuracyText: {
-    fontSize: 9,
-    fontWeight: "800",
-    color: "#166534",
-  },
-
   controls: {
     position: "absolute",
     right: 12,
-    top: 112,
+    top: 90,
     gap: 7,
   },
-
   controlButton: {
     width: 42,
     height: 42,
@@ -975,23 +386,14 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     justifyContent: "center",
     alignItems: "center",
-    shadowColor: "#000000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.16,
-    shadowRadius: 4,
     elevation: 5,
   },
-
   controlText: {
     fontSize: 24,
     lineHeight: 28,
     fontWeight: "500",
     color: "#1E3A8A",
   },
-
   gpsButton: {
     position: "absolute",
     right: 12,
@@ -1004,101 +406,46 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderWidth: 1,
     borderColor: "#BFDBFE",
-    shadowColor: "#000000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.18,
-    shadowRadius: 5,
     elevation: 6,
   },
-
-  gpsButtonDisabled: {
-    opacity: 0.65,
-  },
-
   gpsText: {
     fontSize: 22,
   },
-
-  pickupMarker: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: "#FFFFFF",
-    borderWidth: 3,
-    borderColor: "#2563EB",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-
-  pickupMarkerInner: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: "#2563EB",
-  },
-
-  destinationMarker: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: "#FFFFFF",
-    borderWidth: 3,
-    borderColor: "#16A34A",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-
-  destinationMarkerInner: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: "#16A34A",
-  },
-
   routeLoadingBox: {
     position: "absolute",
     left: 12,
     bottom: 16,
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor:
-      "rgba(255,255,255,0.96)",
+    backgroundColor: "rgba(255,255,255,0.96)",
     paddingHorizontal: 10,
     paddingVertical: 7,
     borderRadius: 10,
     gap: 7,
     elevation: 3,
   },
-
   routeLoadingText: {
     fontSize: 10,
     fontWeight: "700",
     color: "#1E3A8A",
   },
-
   routeErrorBox: {
     position: "absolute",
     left: 12,
     right: 70,
     bottom: 16,
-    backgroundColor:
-      "rgba(255,247,237,0.96)",
+    backgroundColor: "rgba(255,247,237,0.96)",
     borderRadius: 10,
     paddingHorizontal: 10,
     paddingVertical: 7,
     borderWidth: 1,
     borderColor: "#FED7AA",
   },
-
   routeErrorText: {
     fontSize: 9,
     fontWeight: "700",
     color: "#9A3412",
   },
-
   mapLoadingOverlay: {
     position: "absolute",
     top: 0,
@@ -1109,7 +456,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: "#E2E8F0",
   },
-
   mapLoadingBox: {
     flexDirection: "row",
     alignItems: "center",
@@ -1120,60 +466,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     elevation: 4,
   },
-
   mapLoadingText: {
     fontSize: 11,
     fontWeight: "700",
     color: "#334155",
-  },
-
-  bottomOverlay: {
-    position: "absolute",
-    left: 12,
-    right: 12,
-    bottom: 12,
-  },
-
-  routeSummary: {
-    backgroundColor:
-      "rgba(255,255,255,0.96)",
-    borderRadius: 14,
-    paddingVertical: 9,
-    paddingHorizontal: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-around",
-    elevation: 4,
-    shadowColor: "#000000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.12,
-    shadowRadius: 5,
-  },
-
-  summaryItem: {
-    flex: 1,
-    alignItems: "center",
-  },
-
-  summaryValue: {
-    fontSize: 13,
-    fontWeight: "900",
-    color: "#2563EB",
-  },
-
-  summaryLabel: {
-    marginTop: 1,
-    fontSize: 9,
-    fontWeight: "600",
-    color: "#64748B",
-  },
-
-  summaryDivider: {
-    width: 1,
-    height: 24,
-    backgroundColor: "#E2E8F0",
   },
 });

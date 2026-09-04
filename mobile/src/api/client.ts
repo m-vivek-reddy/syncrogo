@@ -1,6 +1,5 @@
 import { create } from "axios";
 import { Platform } from "react-native";
-import Constants from "expo-constants";
 import { useAuthStore } from "../store/auth";
 
 /**
@@ -8,37 +7,6 @@ import { useAuthStore } from "../store/auth";
  */
 const cleanUrl = (url: string): string => {
   return url.replace(/\/+$/, "");
-};
-
-/**
- * Get the development machine IP used by Expo.
- */
-const getExpoHostIp = (): string | null => {
-  const hostUri =
-    Constants.expoConfig?.hostUri ||
-    (Constants as any).manifest?.debuggerHost ||
-    (Constants as any).manifest2?.extra?.expoClient?.hostUri;
-
-  if (!hostUri) {
-    return null;
-  }
-
-  /*
-   * Examples:
-   * 192.168.0.103:8081
-   * 192.168.0.103:19000
-   */
-  const host = hostUri.split(":")[0];
-
-  if (
-    host &&
-    host !== "localhost" &&
-    host !== "127.0.0.1"
-  ) {
-    return host;
-  }
-
-  return null;
 };
 
 /**
@@ -57,7 +25,6 @@ export const getApiBaseUrl = (): string => {
   if (envUrl && envUrl.trim()) {
     return cleanUrl(envUrl.trim());
   }
-
   /*
    * 2. Web.
    */
@@ -92,27 +59,11 @@ export const getApiBaseUrl = (): string => {
   }
 
   /*
-   * 3. Physical Android device running Expo Go.
+   * 3. Default: hosted backend.
    *
-   * Expo exposes the development computer's LAN IP.
-   */
-  const expoHostIp = getExpoHostIp();
-
-  if (expoHostIp && __DEV__) {
-    return `http://${expoHostIp}:8000`;
-  }
-
-  /*
-   * 4. Android Emulator.
-   *
-   * 10.0.2.2 points to the host computer.
-   */
-  if (Platform.OS === "android" && __DEV__) {
-    return "http://10.0.2.2:8000";
-  }
-
-  /*
-   * 5. iOS Simulator / production fallback.
+   * The deployed Render backend is reachable from physical devices,
+   * emulators, and web. Set EXPO_PUBLIC_API_URL to override for
+   * local backend development.
    */
   return "https://syncrogo-backend.onrender.com";
 };

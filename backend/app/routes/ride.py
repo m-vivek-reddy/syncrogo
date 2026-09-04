@@ -232,6 +232,60 @@ def update_ride_price(
 
 
 # ============================================================
+# RIDE SEARCH SERIALIZATION (driver live location + ETA)
+# ============================================================
+
+def serialize_ride_offer(db: Session, ride: Ride, passenger_lat: float, passenger_lon: float) -> dict:
+    """Serialize a published ride offer for the passenger search results,
+    including the driver's live location and distance/ETA from the passenger."""
+    from app.services.matching_service import calculate_distance
+
+    driver = db.query(User).filter(User.id == ride.driver_id).first()
+
+    distance_km = calculate_distance(
+        passenger_lat, passenger_lon, ride.pickup_lat, ride.pickup_lon
+    )
+
+    # Rough ETA: assume ~25 km/h average city speed for the driver to reach
+    eta_minutes = max(1, round((distance_km / 25.0) * 60)) if distance_km is not None else None
+
+    driver_lat = driver.latitude if driver else None
+    driver_lon = driver.longitude if driver else None
+    driver_online = bool(driver.is_online) if driver else False
+
+    return {
+        "id": ride.id,
+        "ride_id": ride.id,
+        "driver_id": ride.driver_id,
+        "driver_name": (driver.full_name if driver else None) or f"Driver #{ride.driver_id}",
+        "driver_phone": driver.phone if driver else None,
+        "driver_rating": driver.rating if driver and hasattr(driver, "rating") else None,
+        "driver_online": driver_online,
+        "driver_live_location": {
+            "latitude": driver_lat,
+            "longitude": driver_lon,
+            "is_live": driver_lat is not None and driver_lon is not None,
+        },
+        "vehicle_number": getattr(ride, "vehicle_number", None),
+        "vehicle_type": ride.vehicle_type,
+        "origin": ride.origin,
+        "destination": ride.destination,
+        "pickup_lat": ride.pickup_lat,
+        "pickup_lon": ride.pickup_lon,
+        "dropoff_lat": ride.dropoff_lat,
+        "dropoff_lon": ride.dropoff_lon,
+        "price_per_seat": ride.price_per_seat,
+        "seats_available": ride.seats_available,
+        "available_seats": ride.seats_available,
+        "gender_preference": ride.gender_preference,
+        "distance_km": ride.distance_km,
+        "pickup_distance_km": round(distance_km, 2) if distance_km is not None else None,
+        "eta_minutes": eta_minutes,
+        "status": ride.status,
+    }
+
+
+# ============================================================
 # SEARCH RIDES
 # ============================================================
 
@@ -242,7 +296,10 @@ def update_ride_price(
 def search_rides(
     pickup_lat: float,
     pickup_lon: float,
+    dropoff_lat: Optional[float] = None,
+    dropoff_lon: Optional[float] = None,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     try:
         import math
@@ -270,6 +327,11 @@ def search_rides(
             .all()
         )
 
+        # Keep passenger's live location updated while they search for offers
+        current_user.latitude = pickup_lat
+        current_user.longitude = pickup_lon
+        db.commit()
+
         nearby_rides = []
 
         for ride in matching_offers:
@@ -283,10 +345,23 @@ def search_rides(
             if distance <= 10.0:
                 nearby_rides.append(ride)
 
+        # Sort by closest driver pickup
+        nearby_rides.sort(
+            key=lambda r: calculate_distance(
+                pickup_lat, pickup_lon, r.pickup_lat, r.pickup_lon
+            )
+        )
+
+        serialized = [serialize_ride_offer(db, ride, pickup_lat, pickup_lon) for ride in nearby_rides]
+
         return {
             "success": True,
-            "count": len(nearby_rides),
-            "data": nearby_rides,
+            "count": len(serialized),
+            "passenger_location": {
+                "latitude": pickup_lat,
+                "longitude": pickup_lon,
+            },
+            "data": serialized,
         }
 
     except Exception as e:

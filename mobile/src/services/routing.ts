@@ -33,19 +33,16 @@ export function haversineDistanceKm(
 
 /**
  * Vehicle types supported by routing.
- * Bikes must avoid motorways (e.g. Hyderabad ORR bans two-wheelers),
- * so their routes are requested with exclude=motorway.
+ * Bikes are routed with the OSRM `bike` profile which avoids motorways
+ * (e.g. Hyderabad ORR bans two-wheelers).
  */
 export type RouteVehicleType = "car" | "bike";
 
-function vehicleExclusion(vehicleType?: RouteVehicleType | string): string {
-  return String(vehicleType).toLowerCase() === "bike"
-    ? "&exclude=motorway"
-    : "";
-}
-
 /**
- * Fetches a road route from OSRM for a single vehicle profile attempt.
+ * Requests a route from the OSRM server.
+ * NOTE: router.project-osrm.org rejects `exclude=` classes with HTTP 400
+ * (the demo dataset isn't prepped with excludable classes), so bikes use
+ * the dedicated `bike` profile instead, which naturally avoids motorways.
  * Returns null if OSRM is unreachable or no route was found.
  */
 async function requestOsrmRoute(
@@ -109,23 +106,24 @@ export async function fetchRoute(
   end: Coordinate,
   vehicleType?: RouteVehicleType | string
 ): Promise<RouteResult> {
+  const isBike = String(vehicleType).toLowerCase() === "bike";
+  const profile = isBike ? "bike" : "driving";
   const base =
-    `${OSRM_URL}/route/v1/driving/` +
+    `${OSRM_URL}/route/v1/${profile}/` +
     `${start.longitude},${start.latitude};` +
     `${end.longitude},${end.latitude}`;
   const params = "?overview=full&geometries=geojson";
 
-  let result: RouteResult | null = null;
+  // Bike profile avoids motorways natively (e.g. Hyderabad ORR).
+  let result: RouteResult | null = await requestOsrmRoute(`${base}${params}`);
 
-  if (String(vehicleType).toLowerCase() === "bike") {
-    // Prefer a route avoiding motorways...
-    result = await requestOsrmRoute(`${base}${params}&exclude=motorway`);
-    // ...but fall back to any road route rather than a straight line.
-    if (!result) {
-      result = await requestOsrmRoute(`${base}${params}`);
-    }
-  } else {
-    result = await requestOsrmRoute(`${base}${params}`);
+  if (!result && isBike) {
+    // Fallback to the driving profile if the bike profile has no route.
+    result = await requestOsrmRoute(
+      `${OSRM_URL}/route/v1/driving/` +
+        `${start.longitude},${start.latitude};` +
+        `${end.longitude},${end.latitude}${params}`
+    );
   }
 
   if (result) return result;
@@ -151,22 +149,52 @@ export async function fetchRoadRoute(
   destination: Coordinate,
   vehicleType?: RouteVehicleType | string
 ): Promise<RouteResult> {
+  const isBike = String(vehicleType).toLowerCase() === "bike";
+  const profile = isBike ? "bike" : "driving";
   const coordinates = [
     coordinateToOSRM(pickup),
     coordinateToOSRM(destination),
   ].join(";");
 
   const url =
-    `${OSRM_URL}/route/v1/driving/${coordinates}` +
-    `?overview=full&geometries=geojson&steps=false${vehicleExclusion(vehicleType)}`;
+    `${OSRM_URL}/route/v1/${profile}/${coordinates}` +
+    `?overview=full&geometries=geojson&steps=false`;
 
-  const response = await fetch(url);
-
-  if (!response.ok) {
-    throw new Error(`Routing service returned HTTP ${response.status}`);
+  let data: any;
+  try {
+    const response = await fetch(url);
+    if (response.ok) {
+      data = await response.json();
+    }
+  } catch {
+    data = null;
   }
 
-  const data = await response.json();
+  /* The bike profile can occasionally fail to snap or route; fall back to
+   * the driving profile so a road route is still shown instead of an error. */
+  if (!data || data.code !== "Ok" || !Array.isArray(data.routes) || data.routes.length === 0) {
+    if (isBike) {
+      try {
+        const fallbackUrl =
+          `${OSRM_URL}/route/v1/driving/${coordinates}` +
+          `?overview=full&geometries=geojson&steps=false`;
+        const fallbackRes = await fetch(fallbackUrl);
+        if (fallbackRes.ok) {
+          const fallbackData = await fallbackRes.json();
+          if (
+            fallbackData &&
+            fallbackData.code === "Ok" &&
+            Array.isArray(fallbackData.routes) &&
+            fallbackData.routes.length > 0
+          ) {
+            data = fallbackData;
+          }
+        }
+      } catch {
+        // keep data null
+      }
+    }
+  }
 
   if (
     !data ||
@@ -233,14 +261,19 @@ export async function fetchMultiPointRoute(
     .map((w) => `${w.longitude},${w.latitude}`)
     .join(";");
 
-  const url =
-    `${OSRM_URL}/route/v1/driving/${coordString}` +
-    `?overview=full&geometries=geojson&steps=false`;
-
   const isBike = String(vehicleType).toLowerCase() === "bike";
-  const urls = isBike
-    ? [`${url}&exclude=motorway`, url]
-    : [url];
+  const profile = isBike ? "bike" : "driving";
+  const urls = [
+    `${OSRM_URL}/route/v1/${profile}/${coordString}` +
+      `?overview=full&geometries=geojson&steps=false`,
+    // Fallback to driving profile for bikes if the bike profile fails.
+    ...(isBike
+      ? [
+          `${OSRM_URL}/route/v1/driving/${coordString}` +
+            `?overview=full&geometries=geojson&steps=false`,
+        ]
+      : []),
+  ];
 
   for (const attemptUrl of urls) {
     try {

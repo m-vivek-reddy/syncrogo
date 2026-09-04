@@ -1,7 +1,7 @@
 import React from "react";
 import { ActivityIndicator, Dimensions, Image, StyleSheet, View } from "react-native";
 
-const { width, height } = Dimensions.get("window");
+const { width } = Dimensions.get("window");
 
 export default function LoadingScreen() {
   return (
@@ -39,8 +39,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   logo: {
-    width: Math.min(width * 0.88, 380),
-    height: Math.min(height * 0.45, 340),
+    width: Math.min(width * 0.7, 320),
+    height: Math.min(width * 0.7, 320),
     maxWidth: "94%",
   },
   spinner: {

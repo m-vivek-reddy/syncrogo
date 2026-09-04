@@ -2,9 +2,10 @@ from datetime import datetime, timezone
 
 from sqlalchemy import (
     Column,
+    Float,
     Integer,
     String,
-    Float,
+    Numeric,
     ForeignKey,
     DateTime,
 )
@@ -118,49 +119,49 @@ class Ride(Base):
     # =========================================================
 
     price_per_seat = Column(
-        Float,
+        Numeric(10, 2),
         nullable=False,
         default=0.0,
     )
 
     base_fare = Column(
-        Float,
+        Numeric(10, 2),
         nullable=False,
         default=0.0,
     )
 
     per_km_rate = Column(
-        Float,
+        Numeric(10, 2),
         nullable=False,
         default=0.0,
     )
 
     platform_fee = Column(
-        Float,
+        Numeric(10, 2),
         nullable=False,
         default=0.0,
     )
 
     mrp_fare = Column(
-        Float,
+        Numeric(10, 2),
         nullable=False,
         default=0.0,
     )
 
     minimum_fare = Column(
-        Float,
+        Numeric(10, 2),
         nullable=False,
         default=0.0,
     )
 
     discount = Column(
-        Float,
+        Numeric(10, 2),
         nullable=False,
         default=0.0,
     )
 
     final_fare = Column(
-        Float,
+        Numeric(10, 2),
         nullable=False,
         default=0.0,
     )

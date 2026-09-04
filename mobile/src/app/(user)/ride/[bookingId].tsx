@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -11,6 +11,7 @@ import {
   View,
 } from "react-native";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
+import * as Location from "expo-location";
 import api from "../../../api/client";
 import { Colors } from "../../../constants/colors";
 import PassengerRideMap, {
@@ -51,6 +52,82 @@ export default function RideNavigation() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Passenger live location sharing
+  const [sharingLocation, setSharingLocation] = useState(false);
+  const [lastSharedAt, setLastSharedAt] = useState<string | null>(null);
+  const watchRef = useRef<Location.LocationSubscription | null>(null);
+
+  const shareLocation = useCallback(async () => {
+    if (!bookingId) return;
+    try {
+      const { status } = await Location.getForegroundPermissionsAsync();
+      if (status !== "granted") {
+        const req = await Location.requestForegroundPermissionsAsync();
+        if (req.status !== "granted") return;
+      }
+
+      const pos = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+
+      await api.post(`/api/v1/bookings/${bookingId}/passenger-location`, {
+        latitude: pos.coords.latitude,
+        longitude: pos.coords.longitude,
+      });
+      setLastSharedAt(new Date().toLocaleTimeString());
+    } catch {
+      // Silent — location sharing is best-effort
+    }
+  }, [bookingId]);
+
+  // Share live location while booking is active
+  useEffect(() => {
+    if (!data) return;
+    const active = ![
+      "COMPLETED",
+      "CANCELLED",
+    ].includes((data.status || "").toUpperCase());
+
+    if (!active) {
+      watchRef.current?.remove();
+      watchRef.current = null;
+      setSharingLocation(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    const start = async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== "granted" || cancelled) return;
+        setSharingLocation(true);
+
+        // Immediate push, then watch
+        void shareLocation();
+        watchRef.current = await Location.watchPositionAsync(
+          {
+            accuracy: Location.Accuracy.Balanced,
+            timeInterval: 15000,
+            distanceInterval: 30,
+          },
+          () => void shareLocation()
+        );
+      } catch {
+        setSharingLocation(false);
+      }
+    };
+
+    void start();
+
+    return () => {
+      cancelled = true;
+      watchRef.current?.remove();
+      watchRef.current = null;
+      setSharingLocation(false);
+    };
+  }, [data?.status, bookingId, shareLocation]);
 
   const loadLiveBooking = useCallback(
     async (isManualRefresh = false) => {
@@ -225,6 +302,15 @@ export default function RideNavigation() {
             <Text style={styles.otpCode}>{data.otp_code}</Text>
           </View>
         )}
+      </View>
+
+      {/* Live location sharing indicator */}
+      <View style={styles.locationShareBar}>
+        <Text style={styles.locationShareText}>
+          {sharingLocation
+            ? `🟢 Live location sharing ON${lastSharedAt ? ` • last update ${lastSharedAt}` : ""}`
+            : "⚪ Live location sharing off"}
+        </Text>
       </View>
 
       {/* Driver Information Card */}
@@ -428,6 +514,19 @@ const styles = StyleSheet.create({
     marginTop: 12,
     borderWidth: 1,
     borderColor: "#F1F5F9",
+  },
+  locationShareBar: {
+    backgroundColor: "#F0FDF4",
+    borderRadius: 12,
+    padding: 10,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: "#BBF7D0",
+  },
+  locationShareText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#15803D",
   },
   statusPill: { flex: 1 },
   statusTag: {

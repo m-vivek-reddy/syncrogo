@@ -21,6 +21,10 @@ import { useAuthStore } from "../../store/auth";
 const resolvePhotoUrl = (url?: string) => {
   if (!url) return undefined;
   if (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("data:") || url.startsWith("file:")) {
+    /* Backend builds absolute URLs from request.base_url, which is plain
+     * http:// behind the Render proxy. Android blocks cleartext traffic,
+     * so upgrade to https:// to keep the photo visible. */
+    if (url.startsWith("http://")) return url.replace("http://", "https://");
     return url;
   }
   return `${API_BASE_URL}${url.startsWith("/") ? "" : "/"}${url}`;

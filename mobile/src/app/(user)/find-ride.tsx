@@ -10,8 +10,9 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { router } from "expo-router";
+import * as Location from "expo-location";
 import api from "../../api/client";
 import { Colors } from "../../constants/colors";
 import LocationPickerMap from "../../components/LocationPickerMap";
@@ -24,9 +25,16 @@ import type { Coordinate } from "../../services/routing";
 
 type DriverOffer = {
   id: number;
+  ride_id?: number;
   driver_id: number;
   driver_name?: string;
   driver_phone?: string;
+  driver_online?: boolean;
+  driver_live_location?: {
+    latitude: number | null;
+    longitude: number | null;
+    is_live?: boolean;
+  };
   vehicle_number?: string;
   vehicle_type?: string;
   origin: string;
@@ -35,6 +43,8 @@ type DriverOffer = {
   seats_available?: number;
   available_seats?: number;
   gender_preference?: string;
+  pickup_distance_km?: number | null;
+  eta_minutes?: number | null;
 };
 
 export default function FindRide() {
@@ -57,6 +67,59 @@ export default function FindRide() {
   const [isSearching, setIsSearching] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const [bookingRideId, setBookingRideId] = useState<number | null>(null);
+
+  // Passenger live GPS (used for search & shared with the backend)
+  const [liveLocation, setLiveLocation] = useState<Coordinate | null>(null);
+  const [locationStatus, setLocationStatus] = useState<
+    "idle" | "locating" | "granted" | "denied" | "unavailable"
+  >("idle");
+  const locationWatchRef = useRef<Location.LocationSubscription | null>(null);
+
+  const startLiveLocation = useCallback(async () => {
+    try {
+      setLocationStatus("locating");
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") {
+        setLocationStatus("denied");
+        return;
+      }
+
+      // Immediate fix so search has coordinates even before first watch tick
+      const pos = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+      });
+      const first = {
+        latitude: pos.coords.latitude,
+        longitude: pos.coords.longitude,
+      };
+      setLiveLocation(first);
+      setPickupCoord(first);
+      setLocationStatus("granted");
+
+      // Continuous watch so the passenger's location stays live
+      locationWatchRef.current = await Location.watchPositionAsync(
+        { accuracy: Location.Accuracy.Balanced, timeInterval: 10000, distanceInterval: 25 },
+        (loc) => {
+          const coord = {
+            latitude: loc.coords.latitude,
+            longitude: loc.coords.longitude,
+          };
+          setLiveLocation(coord);
+          setPickupCoord(coord);
+        }
+      );
+    } catch {
+      setLocationStatus("unavailable");
+    }
+  }, []);
+
+  useEffect(() => {
+    void startLiveLocation();
+    return () => {
+      locationWatchRef.current?.remove();
+      locationWatchRef.current = null;
+    };
+  }, [startLiveLocation]);
 
   const handlePickupTextChange = (text: string) => {
     setPickup(text);
@@ -149,6 +212,7 @@ export default function FindRide() {
   }, []);
 
   const handleSearch = async () => {
+    const useCoord = liveLocation ?? pickupCoord;
     if (!pickup.trim() || !destination.trim()) {
       return Alert.alert(
         "Locations Required",
@@ -161,8 +225,8 @@ export default function FindRide() {
       setHasSearched(true);
       const { data } = await api.get("/api/v1/rides/search", {
         params: {
-          pickup_lat: pickupCoord.latitude,
-          pickup_lon: pickupCoord.longitude,
+          pickup_lat: useCoord.latitude,
+          pickup_lon: useCoord.longitude,
           dropoff_lat: destinationCoord.latitude,
           dropoff_lon: destinationCoord.longitude,
         },
@@ -239,6 +303,30 @@ export default function FindRide() {
           <Text style={styles.backText}>‹</Text>
         </Pressable>
         <Text style={styles.headerTitle}>Find a Ride</Text>
+      </View>
+
+      {/* Passenger live location banner */}
+      <View
+        style={[
+          styles.liveBanner,
+          locationStatus === "granted" && styles.liveBannerActive,
+          (locationStatus === "denied" || locationStatus === "unavailable") &&
+            styles.liveBannerError,
+        ]}
+      >
+        <Text style={styles.liveBannerText}>
+          {locationStatus === "granted" &&
+            `📍 Live location ON${
+              liveLocation
+                ? ` (${liveLocation.latitude.toFixed(4)}, ${liveLocation.longitude.toFixed(4)})`
+                : ""
+            }`}
+          {locationStatus === "locating" && "📡 Getting your live location..."}
+          {locationStatus === "denied" &&
+            "⚠️ Location permission denied — enable it to find nearby offers."}
+          {locationStatus === "unavailable" && "⚠️ GPS unavailable — using map pin instead."}
+          {locationStatus === "idle" && "📡 Location idle"}
+        </Text>
       </View>
 
       <View style={styles.card}>
@@ -375,10 +463,28 @@ export default function FindRide() {
 
                 <View style={styles.routeBox}>
                   <View style={styles.routeItem}>
-                    <View style={[styles.dot, { backgroundColor: Colors.primary }]} />
+                    <View
+                      style={[
+                        styles.dot,
+                        offer.driver_online && offer.driver_live_location?.is_live
+                          ? styles.dotLive
+                          : { backgroundColor: Colors.primary },
+                      ]}
+                    />
                     <Text style={styles.routeTxt} numberOfLines={1}>
                       {offer.origin?.split(",")[0] || "Origin"}
                     </Text>
+                    {(offer.pickup_distance_km != null ||
+                      offer.eta_minutes != null) && (
+                      <Text style={styles.etaText}>
+                        {offer.pickup_distance_km != null
+                          ? `${offer.pickup_distance_km} km`
+                          : ""}
+                        {offer.eta_minutes != null
+                          ? ` • ~${offer.eta_minutes} min`
+                          : ""}
+                      </Text>
+                    )}
                   </View>
                   <View style={styles.routeConnector} />
                   <View style={styles.routeItem}>
@@ -395,6 +501,11 @@ export default function FindRide() {
                       {(offer.gender_preference || "any_gender").replace("_", " ")}
                     </Text>
                   </View>
+                  {offer.driver_online && offer.driver_live_location?.is_live && (
+                    <View style={styles.liveTag}>
+                      <Text style={styles.liveTagText}>● LIVE</Text>
+                    </View>
+                  )}
                 </View>
 
                 <View style={styles.actionsRow}>
@@ -435,6 +546,52 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#F8FAFC",
+  },
+  liveBanner: {
+    borderRadius: 12,
+    padding: 10,
+    marginBottom: 12,
+    backgroundColor: "#FEF3C7",
+    borderWidth: 1,
+    borderColor: "#FDE68A",
+  },
+  liveBannerActive: {
+    backgroundColor: "#DCFCE7",
+    borderColor: "#BBF7D0",
+  },
+  liveBannerError: {
+    backgroundColor: "#FEE2E2",
+    borderColor: "#FECACA",
+  },
+  liveBannerText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#166534",
+  },
+  dotLive: {
+    backgroundColor: "#16A34A",
+    shadowColor: "#16A34A",
+    shadowOpacity: 0.8,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  etaText: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: "#2563EB",
+  },
+  liveTag: {
+    backgroundColor: "#DCFCE7",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#BBF7D0",
+  },
+  liveTagText: {
+    fontSize: 10,
+    fontWeight: "900",
+    color: "#15803D",
   },
   content: {
     padding: 16,

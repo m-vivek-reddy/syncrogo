@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, Float, Integer, String, Boolean, ForeignKey
+from sqlalchemy import Column, DateTime, Numeric, Integer, String, Boolean, ForeignKey
 from app.db.database import Base
 
 class PaymentMethod(Base):
@@ -25,7 +25,7 @@ class Payment(Base):
     provider = Column(String, nullable=False, default="razorpay")
     provider_payment_id = Column(String, nullable=False, unique=True, index=True)
     provider_order_id = Column(String, nullable=True, index=True)
-    amount = Column(Float, nullable=False)
+    amount = Column(Numeric(10, 2), nullable=False)
     status = Column(String, nullable=False, default="PENDING", index=True)
     paid_at = Column(DateTime(timezone=True), nullable=True)
     idempotency_key = Column(String, nullable=False, unique=True, index=True)
