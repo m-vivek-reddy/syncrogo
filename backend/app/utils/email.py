@@ -1,20 +1,43 @@
-import smtplib
+import logging
 import os
+import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
-def send_otp_email(user_email: str, user_name: str, otp: str):
+logger = logging.getLogger(__name__)
+
+
+def _send_mail(to_email: str, subject: str, html_body: str) -> bool:
+    """Shared SMTP sender. Returns True on success, False on failure."""
     sender_email = os.getenv("SMTP_EMAIL")
     sender_password = os.getenv("SMTP_PASSWORD")
-    
+
     if not sender_email or not sender_password:
-        print("⚠️ Email credentials missing in .env file!")
-        return
+        logger.warning(
+            "Email not sent: SMTP_EMAIL/SMTP_PASSWORD are not configured."
+        )
+        return False
 
     msg = MIMEMultipart()
-    msg['From'] = sender_email
-    msg['To'] = user_email
-    msg['Subject'] = f"{otp} is your SyncroGo Verification Code"
+    msg["From"] = sender_email
+    msg["To"] = to_email
+    msg["Subject"] = subject
+    msg.attach(MIMEText(html_body, "html", "utf-8"))
+
+    try:
+        with smtplib.SMTP("smtp.gmail.com", 587, timeout=20) as server:
+            server.starttls()
+            server.login(sender_email, sender_password)
+            server.send_message(msg)
+        logger.info("Email sent to %s", to_email)
+        return True
+    except Exception:
+        logger.exception("Failed to send email to %s", to_email)
+        return False
+
+
+def send_otp_email(user_email: str, user_name: str, otp: str):
+    subject = f"{otp} is your SyncroGo Verification Code"
 
     html_body = f"""
     <html>
@@ -22,24 +45,14 @@ def send_otp_email(user_email: str, user_name: str, otp: str):
             <div style="max-width: 450px; margin: 0 auto; background: white; padding: 30px; border-radius: 16px; border: 1px solid #e2e8f0; text-align: center;">
                 <h2 style="color: #1e293b; margin-bottom: 10px;">SyncroGo 🚗</h2>
                 <p style="color: #64748b; font-size: 14px;">Hi {user_name}, use the 6-digit code below to verify your email address. It will expire in 10 minutes.</p>
-                
+
                 <div style="background-color: #f1f5f9; padding: 18px; border-radius: 12px; margin: 25px 0; letter-spacing: 10px; font-size: 32px; font-weight: bold; color: #4f46e5;">
                     {otp}
                 </div>
-                
+
                 <p style="color: #94a3b8; font-size: 12px;">If you didn't request this code, you can safely ignore this email.</p>
             </div>
         </body>
     </html>
     """
-    msg.attach(MIMEText(html_body, 'html'))
-
-    try:
-        server = smtplib.SMTP('smtp.gmail.com', 587)
-        server.starttls()
-        server.login(sender_email, sender_password)
-        server.send_message(msg)
-        server.quit()
-        print(f"✅ OTP email successfully sent to {user_email}")
-    except Exception as e:
-        print(f"❌ Failed to send OTP email: {e}")
+    return _send_mail(user_email, subject, html_body)
