@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -23,6 +24,12 @@ if not os.getenv("SMTP_EMAIL") or not os.getenv("SMTP_PASSWORD"):
 def send_password_reset_email(user_email: str, user_name: str, reset_url: str) -> None:
     sender_email = (os.getenv("SMTP_EMAIL") or "").strip()
     sender_password = (os.getenv("SMTP_PASSWORD") or "").strip()
+    smtp_host = (os.getenv("SMTP_HOST") or "smtp.gmail.com").strip()
+    smtp_port = int(os.getenv("SMTP_PORT") or "587")
+
+    if smtp_host.lower() == "smtp.gmail.com":
+        sender_password = re.sub(r"\s+", "", sender_password)
+
     if not sender_email or not sender_password:
         logger.warning(
             "Password-reset email not sent: SMTP_EMAIL/SMTP_PASSWORD are not configured."
@@ -40,7 +47,7 @@ def send_password_reset_email(user_email: str, user_name: str, reset_url: str) -
         "utf-8",
     ))
     try:
-        with smtplib.SMTP("smtp.gmail.com", 587, timeout=20) as server:
+        with smtplib.SMTP(smtp_host, smtp_port, timeout=20) as server:
             server.starttls()
             server.login(sender_email, sender_password)
             server.send_message(msg)

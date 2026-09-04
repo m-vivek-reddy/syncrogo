@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -24,6 +25,13 @@ def _send_mail(to_email: str, subject: str, html_body: str) -> bool:
     """Shared SMTP sender. Returns True on success, False on failure."""
     sender_email = (os.getenv("SMTP_EMAIL") or "").strip()
     sender_password = (os.getenv("SMTP_PASSWORD") or "").strip()
+    smtp_host = (os.getenv("SMTP_HOST") or "smtp.gmail.com").strip()
+    smtp_port = int(os.getenv("SMTP_PORT") or "587")
+
+    # Gmail displays app passwords in groups, but SMTP expects the 16-character
+    # value without formatting spaces.
+    if smtp_host.lower() == "smtp.gmail.com":
+        sender_password = re.sub(r"\s+", "", sender_password)
 
     if not sender_email or not sender_password:
         logger.warning(
@@ -39,7 +47,7 @@ def _send_mail(to_email: str, subject: str, html_body: str) -> bool:
     msg.attach(MIMEText(html_body, "html", "utf-8"))
 
     try:
-        with smtplib.SMTP("smtp.gmail.com", 587, timeout=20) as server:
+        with smtplib.SMTP(smtp_host, smtp_port, timeout=20) as server:
             server.starttls()
             server.login(sender_email, sender_password)
             server.send_message(msg)
@@ -51,8 +59,7 @@ def _send_mail(to_email: str, subject: str, html_body: str) -> bool:
 
 
 def send_otp_email(user_email: str, user_name: str, otp: str):
-    logger.info("🔑 [OTP] Generating & sending verification code for %s: %s", user_email, otp)
-    print(f"🔑 [OTP DISPATCH] Verification OTP for {user_email}: {otp}", flush=True)
+    logger.info("Sending verification email to %s", user_email)
 
     subject = f"{otp} is your SyncroGo Verification Code"
 
