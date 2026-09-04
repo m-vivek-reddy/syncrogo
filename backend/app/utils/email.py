@@ -1,14 +1,17 @@
 import logging
 import os
+import re
+import smtplib
 from html import escape
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from pathlib import Path
 from dotenv import load_dotenv
-import requests
 
 logger = logging.getLogger(__name__)
 
 # Ensure environment is loaded if not already present.
-if not os.getenv("BREVO_API_KEY"):
+if not os.getenv("SMTP_EMAIL") or not os.getenv("SMTP_PASSWORD"):
     for _env_path in [
         Path(__file__).resolve().parent.parent.parent / ".env",
         Path.cwd() / "backend" / ".env",
@@ -20,52 +23,46 @@ if not os.getenv("BREVO_API_KEY"):
 
 
 def _send_mail(to_email: str, subject: str, html_body: str) -> bool:
-    """Send transactional email through Brevo's HTTPS API."""
-    api_key = (os.getenv("BREVO_API_KEY") or "").strip()
+    """Send transactional email through Gmail SMTP."""
     sender_email = (os.getenv("EMAIL_FROM") or "").strip()
-    sender_name = (os.getenv("EMAIL_FROM_NAME") or "SyncroGo").strip()
-
-    if not api_key or not sender_email or not to_email:
-        logger.warning(
-            "Email not sent to %s: Brevo configuration is incomplete.",
-            to_email,
-        )
-        return False
-
-    payload = {
-        "sender": {"name": sender_name, "email": sender_email},
-        "to": [{"email": to_email}],
-        "subject": subject,
-        "htmlContent": html_body,
-    }
+    sender_email = (os.getenv("SMTP_EMAIL") or sender_email).strip()
+    sender_password = (os.getenv("SMTP_PASSWORD") or "").strip()
+    smtp_host = (os.getenv("SMTP_HOST") or "smtp.gmail.com").strip()
 
     try:
-        response = requests.post(
-            "https://api.brevo.com/v3/smtp/email",
-            headers={
-                "accept": "application/json",
-                "api-key": api_key,
-                "content-type": "application/json",
-            },
-            json=payload,
-            timeout=20,
-        )
-        if 200 <= response.status_code < 300:
-            logger.info("Email accepted by Brevo for %s", to_email)
-            return True
-
-        logger.error(
-            "Brevo email request failed for %s: status=%s response=%s",
+        smtp_port = int(os.getenv("SMTP_PORT") or "587")
+    except ValueError:
+        logger.warning(
+            "Email not sent to %s: SMTP_PORT must be a number.",
             to_email,
-            response.status_code,
-            response.text,
         )
         return False
-    except requests.exceptions.RequestException:
-        logger.exception("Brevo request failed for %s", to_email)
+
+    if not sender_email or not sender_password or not to_email:
+        logger.warning(
+            "Email not sent to %s: SMTP_EMAIL/SMTP_PASSWORD are not configured.",
+            to_email,
+        )
         return False
+
+    if smtp_host.lower() == "smtp.gmail.com":
+        sender_password = re.sub(r"\s+", "", sender_password)
+
+    message = MIMEMultipart()
+    message["From"] = sender_email
+    message["To"] = to_email
+    message["Subject"] = subject
+    message.attach(MIMEText(html_body, "html", "utf-8"))
+
+    try:
+        with smtplib.SMTP(smtp_host, smtp_port, timeout=20) as server:
+            server.starttls()
+            server.login(sender_email, sender_password)
+            server.send_message(message)
+        logger.info("Email sent successfully to %s via SMTP", to_email)
+        return True
     except Exception:
-        logger.exception("Unexpected Brevo email failure for %s", to_email)
+        logger.exception("Failed to send email to %s via SMTP", to_email)
         return False
 
 
