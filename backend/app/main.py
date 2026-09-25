@@ -43,6 +43,7 @@ from app.models.rating import Rating
 from app.models.notification import Notification
 from app.models.report import Report
 from app.models.payment import PaymentMethod, Payment
+from app.models.cash_fee_ledger import CashFeeLedger
 from app.models.document import Document
 from app.models.wallet import Wallet, Transaction
 from app.models.platform_setting import PlatformSetting
@@ -69,6 +70,7 @@ from app.routes import admin
 from app.routes import notifications
 from app.routes import emergency_contact
 from app.routes import bookings
+from app.routes import cash_fees
 
 # API routers
 from app.api import pricing
@@ -121,7 +123,8 @@ app.add_middleware(
         "https://hj4cqztk-5173.inc1.devtunnels.ms",
         "https://syncrogo-backend.onrender.com",
     ],
-    allow_origin_regex=r"^https?://.*$",
+    # SECURITY: no wildcard origin regex — the allowlist above is authoritative.
+    # A regex like r"^https?://.*$" would silently allow ANY origin with credentials.
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -157,6 +160,7 @@ app.include_router(notifications.router)
 app.include_router(pricing.router)
 app.include_router(emergency_contact.router)
 app.include_router(bookings.router)
+app.include_router(cash_fees.router)
 
 
 # ---------------------------------------------------------

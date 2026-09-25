@@ -179,8 +179,15 @@ export const bookSeatWithBackend = async (rideId: number) => {
     return { success: true, data: response.data };
   } catch (error: any) {
     console.error('Failed to book seat:', error);
-    const errorMsg = error.response?.data?.detail || 'Failed to book seat';
-    return { success: false, error: errorMsg };
+    const rawDetail = error.response?.data?.detail;
+    // 402 gate payloads arrive as { message, outstanding, overdue_days, ... }.
+    const detail = typeof rawDetail === 'object' && rawDetail !== null ? rawDetail.message : rawDetail;
+    return {
+      success: false,
+      error: detail || 'Failed to book seat',
+      status: error.response?.status,
+      cashFeeBlock: typeof rawDetail === 'object' && rawDetail !== null ? rawDetail : undefined,
+    };
   }
 };
 

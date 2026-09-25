@@ -2,6 +2,8 @@ import os
 
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
+from sqlalchemy.engine import make_url
+from sqlalchemy.exc import ArgumentError
 from sqlalchemy.orm import sessionmaker
 
 from app.db.base import Base
@@ -27,9 +29,36 @@ if not DATABASE_URL:
         )
     DATABASE_URL = "sqlite:///./syncrogo.db"
 
-# Normalize legacy postgres:// prefix to postgresql:// for SQLAlchemy 2.0+
+# --- PostgreSQL driver normalization -----------------------------------------
+# The installed PostgreSQL driver is psycopg 3 (`psycopg`), NOT psycopg2.
+# A bare `postgresql://` URL makes SQLAlchemy 2.0 default to the psycopg2 dialect,
+# which is not installed -> ModuleNotFoundError at import. Supabase's dashboard
+# hands out bare `postgresql://` strings, so pin the driver explicitly to
+# `postgresql+psycopg://` to match what requirements.txt actually installs.
+# Also normalize the legacy `postgres://` alias that SQLAlchemy 2.0 rejects.
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
+if DATABASE_URL.startswith("postgresql://"):
+    DATABASE_URL = DATABASE_URL.replace(
+        "postgresql://", "postgresql+psycopg://", 1
+    )
+
+_ALLOWED_PG_PREFIXES = (
+    "postgresql+psycopg://",
+    "sqlite",
+)
+
+if not DATABASE_URL.startswith(_ALLOWED_PG_PREFIXES):
+    # e.g. postgresql+psycopg2:// / postgresql+asyncpg:// / postgresql+pg8000://
+    _driver = DATABASE_URL.split("://", 1)[0]
+    raise RuntimeError(
+        f"DATABASE_URL uses an unsupported driver '{_driver}'. This deployment "
+        "installs psycopg 3 only, so the URL must be a Supabase Session Pooler "
+        "connection string beginning with 'postgresql://' (it is normalized to "
+        "postgresql+psycopg:// automatically). Fix DATABASE_URL in the Render "
+        "environment rather than relying on any local fallback."
+    )
 
 _is_sqlite = DATABASE_URL.startswith("sqlite")
 
@@ -44,11 +73,25 @@ if not _is_sqlite:
         "pool_recycle": 300,
     }
 
-engine = create_engine(
-    DATABASE_URL,
-    connect_args=connect_args,
-    **engine_kwargs,
-)
+try:
+    make_url(DATABASE_URL)
+    engine = create_engine(
+        DATABASE_URL,
+        connect_args=connect_args,
+        **engine_kwargs,
+    )
+    # Log only the driver/dialect (never the URL, which holds credentials).
+    print(
+        f"[db] engine driver={engine.url.drivername} "
+        f"backend={engine.url.get_backend_name()} "
+        f"pool_pre_ping={engine_kwargs.get('pool_pre_ping', False)}"
+    )
+except ArgumentError as _exc:
+    raise RuntimeError(
+        "DATABASE_URL could not be parsed by SQLAlchemy. Set a valid "
+        "connection string in the environment (Render → Environment "
+        "Variables). See the Render logs above for the exact parser error."
+    ) from _exc
 
 SessionLocal = sessionmaker(
     autocommit=False,

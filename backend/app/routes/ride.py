@@ -14,6 +14,14 @@ from app.models.user import User
 from app.routes.auth import get_current_user
 from app.services.ride_service import modify_ride_price
 from app.services.pricing_service import calculate_ride_fare
+from app.services.booking_state_service import complete_ride_bookings
+from app.services.ride_validation import (
+    enforce_driver_vehicle_type,
+    normalize_vehicle_type,
+    resolve_authoritative_distance,
+    validate_coordinate_pair,
+    validate_seat_count,
+)
 
 
 router = APIRouter(
@@ -50,9 +58,9 @@ class RideOfferCreate(BaseModel):
 
     @model_validator(mode="after")
     def validate_price_fields(self):
-        if self.distance_km <= 0:
+        if self.distance_km is None or self.distance_km < 0:
             raise ValueError(
-                "The ride distance must be greater than zero."
+                "The ride distance cannot be negative."
             )
 
         if self.discount is not None and self.discount < 0:
@@ -120,9 +128,46 @@ def publish_ride_offer(
             detail="Your driver documents have not been approved yet. You cannot offer a ride until your documents are verified.",
         )
 
+    # ------------------------------------------------------------
+    # 1. Coordinate validation
+    # ------------------------------------------------------------
+    # Both endpoints must be real, in-range coordinates. Every distance and
+    # fare decision below depends on them.
+    pickup_lat, pickup_lon = validate_coordinate_pair(
+        offer_data.pickup_lat, offer_data.pickup_lon, "Pickup"
+    )
+    dropoff_lat, dropoff_lon = validate_coordinate_pair(
+        offer_data.dropoff_lat, offer_data.dropoff_lon, "Dropoff"
+    )
+
+    # ------------------------------------------------------------
+    # 2. Vehicle type validation + registered-vehicle consistency
+    # ------------------------------------------------------------
+    vehicle_type = normalize_vehicle_type(offer_data.vehicle_type)
+    enforce_driver_vehicle_type(db, current_driver_id, vehicle_type)
+
+    available_seats = validate_seat_count(
+        vehicle_type, offer_data.available_seats
+    )
+
+    # ------------------------------------------------------------
+    # 3. Server-authoritative distance
+    # ------------------------------------------------------------
+    # Pricing is never based on the client-supplied distance. The server
+    # derives it from the validated coordinates; a client value that
+    # materially understates the route is rejected rather than trusted.
+    distance_info = resolve_authoritative_distance(
+        pickup_lat=pickup_lat,
+        pickup_lon=pickup_lon,
+        dropoff_lat=dropoff_lat,
+        dropoff_lon=dropoff_lon,
+        client_distance_km=offer_data.distance_km,
+    )
+    authoritative_distance_km = distance_info["distance_km"]
+
     pricing = calculate_ride_fare(
-        distance_km=offer_data.distance_km,
-        vehicle_type=offer_data.vehicle_type,
+        distance_km=authoritative_distance_km,
+        vehicle_type=vehicle_type,
         discount=offer_data.discount or 0.0,
     )
 
@@ -143,15 +188,15 @@ def publish_ride_offer(
         origin=offer_data.pickup_location,
         destination=offer_data.dropoff_location,
 
-        pickup_lat=offer_data.pickup_lat,
-        pickup_lon=offer_data.pickup_lon,
+        pickup_lat=pickup_lat,
+        pickup_lon=pickup_lon,
 
-        dropoff_lat=offer_data.dropoff_lat,
-        dropoff_lon=offer_data.dropoff_lon,
+        dropoff_lat=dropoff_lat,
+        dropoff_lon=dropoff_lon,
 
-        distance_km=offer_data.distance_km,
+        distance_km=authoritative_distance_km,
 
-        vehicle_type=offer_data.vehicle_type,
+        vehicle_type=vehicle_type,
 
         base_fare=pricing["base_fare"],
         per_km_rate=pricing["per_km_rate"],
@@ -304,6 +349,10 @@ def search_rides(
     try:
         import math
         from app.services.matching_service import calculate_distance
+        # Validate the search origin before it is used in any distance math.
+        validate_coordinate_pair(pickup_lat, pickup_lon, "Pickup")
+        if dropoff_lat is not None and dropoff_lon is not None:
+            validate_coordinate_pair(dropoff_lat, dropoff_lon, "Dropoff")
 
         # Bounding box filter (~10km candidate search area)
         lat_delta = 10.0 / 111.0
@@ -384,95 +433,17 @@ def book_seat(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    ride = (
-        db.query(Ride)
-        .filter(Ride.id == ride_id)
-        .first()
+    # Single source of truth: delegate to the canonical booking route so that ALL
+    # booking rules (server-derived fare, cash-fee eligibility gate, correct
+    # driver_id, PENDING lifecycle) are enforced identically on both entry points.
+    # Previously this route duplicated booking logic while skipping those rules.
+    from app.routes.bookings import create_booking
+    from app.schemas.booking import BookingCreate
+    return create_booking(
+        data=BookingCreate(ride_id=ride_id),
+        db=db,
+        current_user=current_user,
     )
-
-    if not ride:
-        raise HTTPException(
-            status_code=404,
-            detail="Ride not found",
-        )
-
-    # Driver cannot book own ride
-    if ride.driver_id == current_user.id:
-        raise HTTPException(
-            status_code=400,
-            detail="You cannot book your own ride",
-        )
-
-    # ========================================================
-    # IMPORTANT FIX:
-    #
-    # Booking uses passenger_id, NOT customer_id
-    # ========================================================
-
-    existing_booking = (
-        db.query(Booking)
-        .filter(
-            Booking.ride_id == ride_id,
-            Booking.passenger_id == current_user.id,
-        )
-        .first()
-    )
-
-    if existing_booking:
-        raise HTTPException(
-            status_code=400,
-            detail="You have already booked this ride",
-        )
-
-    # Check seats
-    if ride.seats_available <= 0:
-        raise HTTPException(
-            status_code=400,
-            detail="Sorry, this ride is full!",
-        )
-
-    ride.seats_available -= 1
-
-    if ride.seats_available == 0:
-        ride.status = "full"
-
-    try:
-        booking = Booking(
-            ride_id=ride.id,
-
-            # =================================================
-            # FIXED
-            # =================================================
-            passenger_id=current_user.id,
-
-            pickup_location=ride.origin,
-            dropoff_location=ride.destination,
-
-            scheduled_time=datetime.now(timezone.utc),
-
-            status="scheduled",
-        )
-
-        db.add(booking)
-
-        db.commit()
-        db.refresh(booking)
-
-        return {
-            "success": True,
-            "message": "Seat successfully booked!",
-            "booking_id": booking.id,
-            "ride_id": ride.id,
-            "seats_left": ride.seats_available,
-        }
-
-    except Exception as e:
-        db.rollback()
-
-        raise HTTPException(
-            status_code=500,
-            detail=f"Database error: {str(e)}",
-        )
 
 
 # ============================================================
@@ -618,13 +589,6 @@ def start_driver_ride(
         raise HTTPException(status_code=403, detail="Only the ride driver can start this ride")
 
     ride.status = "started"
-
-    # Also update any accepted bookings to STARTED
-    bookings = db.query(Booking).filter(Booking.ride_id == ride_id, Booking.status.in_(["ACCEPTED", "CONFIRMED"])).all()
-    for b in bookings:
-        b.status = "STARTED"
-        b.started_at = datetime.utcnow()
-
     db.commit()
     db.refresh(ride)
     return {"success": True, "message": "Ride started", "status": ride.status}
@@ -636,22 +600,11 @@ def complete_driver_ride(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    ride = db.query(Ride).filter(Ride.id == ride_id).first()
-    if not ride:
-        raise HTTPException(status_code=404, detail="Ride not found")
-    if ride.driver_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Only the ride driver can complete this ride")
-
-    ride.status = "completed"
-
-    # Complete all remaining active bookings for this ride
-    bookings = db.query(Booking).filter(Booking.ride_id == ride_id, Booking.status.in_(["ACCEPTED", "CONFIRMED", "STARTED", "PICKED_UP"])).all()
-    for b in bookings:
-        b.status = "COMPLETED"
-        b.completed_at = datetime.utcnow()
-
-    db.commit()
-    db.refresh(ride)
+    ride, bookings = complete_ride_bookings(
+        db=db,
+        ride_id=ride_id,
+        driver_id=current_user.id,
+    )
     return {"success": True, "message": "Entire ride completed", "status": ride.status}
 
 

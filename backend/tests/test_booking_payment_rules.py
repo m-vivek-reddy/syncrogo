@@ -30,7 +30,7 @@ def test_booking_blocks_self_booking_and_overbooking():
 
 
 def test_driver_cannot_complete_without_verified_otp():
-    code = source("app/routes/bookings.py")
+    code = source("app/services/booking_state_service.py")
     assert "if not booking.otp_verified:" in code
     assert 'booking.status = "COMPLETED"' in code
 

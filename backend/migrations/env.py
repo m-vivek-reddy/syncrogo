@@ -41,11 +41,26 @@ target_metadata = Base.metadata
 
 
 def get_url():
-    # Prefer explicit sqlalchemy.url in alembic.ini, fall back to env var
-    url = config.get_main_option("sqlalchemy.url")
-    if url:
+    # The environment variable is authoritative: Render supplies DATABASE_URL at
+    # runtime. alembic.ini must NOT carry a hardcoded connection string, so an
+    # empty/commented sqlalchemy.url is ignored rather than treated as config.
+    env_url = os.environ.get("DATABASE_URL")
+    if env_url and env_url.strip():
+        url = env_url.strip()
+        # Normalize the legacy postgres:// prefix, matching app/db/database.py.
+        if url.startswith("postgres://"):
+            url = url.replace("postgres://", "postgresql://", 1)
         return url
-    return os.environ.get("DATABASE_URL")
+
+    # Fall back to alembic.ini only when it actually holds a usable URL.
+    ini_url = (config.get_main_option("sqlalchemy.url") or "").strip()
+    if ini_url and not ini_url.startswith("driver://"):
+        return ini_url
+
+    raise RuntimeError(
+        "No database URL configured for migrations. Set the DATABASE_URL "
+        "environment variable (do not hardcode credentials in alembic.ini)."
+    )
 
 
 def run_migrations_offline():
@@ -63,7 +78,6 @@ def run_migrations_offline():
     url = get_url()
     if url is None:
         raise RuntimeError("No database URL configured for offline migrations")
-
     context.configure(
         url=url,
         target_metadata=target_metadata,

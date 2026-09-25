@@ -3,6 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { useAppStore } from "../store/useAppStore";
 import { apiClient } from "../api/client";
 import { PaymentButton } from "../components/PaymentButton";
+import { CashPaymentFlow } from "../components/CashPaymentFlow";
+import { CashFeesCard } from "../components/CashFeesCard";
 import RideReceipt from "./RideReceipt";
 
 interface Booking {
@@ -180,6 +182,8 @@ export default function Trips() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [receipt, setReceipt] = useState<{ booking: Booking; paymentId: number } | null>(null);
+  // Bookings whose passenger chose UPI on the cash/payment-method screen.
+  const [upiBookingIds, setUpiBookingIds] = useState<Set<number>>(new Set());
 
   /*
    * ============================================================
@@ -396,6 +400,12 @@ export default function Trips() {
           </button>
         </div>
       </div>
+
+      {/* ======================================================
+          DRIVER CASH-FEE STATUS (paused banner + fees card)
+      ====================================================== */}
+
+      {isDriverMode && <div className="mx-6 mt-5 max-w-md"><CashFeesCard /></div>}
 
       {/* ======================================================
           ERROR
@@ -715,16 +725,46 @@ export default function Trips() {
                         </div>
 
                         {!isDriverMode && bookingId && rideId && fare !== undefined && (
-                          <PaymentButton
-                            rideId={rideId}
-                            bookingId={bookingId}
-                            finalFare={fare}
-                            passengerEmail=""
-                            onPaid={(paymentId) => {
-                              setReceipt({ booking, paymentId });
-                              void loadBookings(true);
-                            }}
-                          />
+                          upiBookingIds.has(bookingId) ? (
+                            <PaymentButton
+                              rideId={rideId}
+                              bookingId={bookingId}
+                              finalFare={fare}
+                              passengerEmail=""
+                              onPaid={(paymentId) => {
+                                setReceipt({ booking, paymentId });
+                                void loadBookings(true);
+                              }}
+                            />
+                          ) : (
+                            <div className="w-full sm:w-72">
+                              <CashPaymentFlow
+                                mode="passenger"
+                                bookingId={bookingId}
+                                fare={fare}
+                                onChanged={() => void loadBookings(true)}
+                                onUPISelected={() => {
+                                  setUpiBookingIds((prev) => new Set(prev).add(bookingId));
+                                }}
+                              />
+                            </div>
+                          )
+                        )}
+
+                        {isDriverMode && bookingId && fare !== undefined && (
+                          <div className="w-full sm:w-72">
+                            <CashPaymentFlow
+                              mode="driver"
+                              bookingId={bookingId}
+                              fare={fare}
+                              passengerName={
+                                booking.passenger?.full_name ||
+                                booking.passenger?.name ||
+                                "Passenger"
+                              }
+                              onChanged={() => void loadBookings(true)}
+                            />
+                          </div>
                         )}
                       </div>
                     </div>

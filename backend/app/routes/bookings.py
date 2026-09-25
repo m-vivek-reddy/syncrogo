@@ -1,9 +1,12 @@
 import random
 from datetime import datetime
 from pydantic import BaseModel
-
+from app.models.user import User
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from app.db.session import get_db
+from app.models.booking import Booking
+from app.models.notification import Notification
 
 from app.db.session import get_db
 from app.models.booking import Booking
@@ -15,6 +18,8 @@ from app.schemas.booking import (
     LocationUpdate,
 )
 from app.routes.user import get_current_user
+from app.services.cash_fee_service import check_driver_assignment_eligibility
+from app.services.booking_state_service import complete_booking_for_driver
 
 router = APIRouter(
     prefix="/api/v1/bookings",
@@ -32,9 +37,11 @@ def create_booking(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    # The Ride row is the serialization point for capacity and duplicate checks.
     ride = (
         db.query(Ride)
         .filter(Ride.id == data.ride_id)
+        .with_for_update()
         .first()
     )
 
@@ -50,6 +57,10 @@ def create_booking(
             status_code=400,
             detail="You cannot book your own ride",
         )
+
+    # Cash-fee gate: a driver with unpaid fees from a PRIOR day cannot take NEW
+    # ride assignments. Already-active rides are never interrupted (WORKFLOW.md §6).
+    check_driver_assignment_eligibility(db, ride.driver_id)
 
     if ride.status not in {"available", "published"} or ride.seats_available <= 0:
         raise HTTPException(status_code=400, detail="Ride is no longer available")
@@ -81,7 +92,6 @@ def create_booking(
 
         status="PENDING",
 
-        # Boolean
         otp_verified=False,
     )
 
@@ -118,6 +128,7 @@ def accept_booking(
     booking = (
         db.query(Booking)
         .filter(Booking.id == booking_id)
+        .with_for_update()
         .first()
     )
 
@@ -214,6 +225,7 @@ def verify_booking_otp(
     booking = (
         db.query(Booking)
         .filter(Booking.id == booking_id)
+        .with_for_update()
         .first()
     )
 
@@ -511,29 +523,11 @@ def complete_booking(
             detail="Booking not found",
         )
 
-    if booking.driver_id != current_user.id:
-        raise HTTPException(
-            status_code=403,
-            detail="Only driver can complete ride",
-        )
-
-    if booking.status != "STARTED":
-        raise HTTPException(
-            status_code=400,
-            detail="Ride is not currently active",
-        )
-
-    if not booking.otp_verified:
-        raise HTTPException(
-            status_code=400,
-            detail="OTP has not been verified",
-        )
-
-    booking.status = "COMPLETED"
-    booking.completed_at = datetime.utcnow()
-
-    db.commit()
-    db.refresh(booking)
+    booking = complete_booking_for_driver(
+        db=db,
+        booking_id=booking_id,
+        driver_id=current_user.id,
+    )
 
     return {
         "success": True,
@@ -561,7 +555,14 @@ def driver_bookings(db: Session = Depends(get_db), current_user=Depends(get_curr
 
 @router.post("/{booking_id}/cancel")
 def cancel_booking(booking_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    booking = db.query(Booking).filter(Booking.id == booking_id).first()
+    # Lock the Booking first so concurrent cancellations serialize on the status
+    # transition; only one request may restore the seat.
+    booking = (
+        db.query(Booking)
+        .filter(Booking.id == booking_id)
+        .with_for_update()
+        .first()
+    )
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
     if booking.passenger_id != current_user.id:
@@ -569,41 +570,29 @@ def cancel_booking(booking_id: int, db: Session = Depends(get_db), current_user=
     if booking.status not in {"PENDING", "ACCEPTED"}:
         raise HTTPException(status_code=400, detail="This booking can no longer be cancelled")
 
+    ride = (
+        db.query(Ride)
+        .filter(Ride.id == booking.ride_id)
+        .with_for_update()
+        .first()
+    )
+    if not ride:
+        raise HTTPException(status_code=404, detail="Ride not found")
+
+    # Re-check the status after both row locks are held.
+    if booking.status not in {"PENDING", "ACCEPTED"}:
+        raise HTTPException(status_code=400, detail="This booking can no longer be cancelled")
+
     booking.status = "CANCELLED"
-    ride = db.query(Ride).filter(Ride.id == booking.ride_id).first()
-    if ride:
-        ride.seats_available += 1
-        if ride.status == "full":
-            ride.status = "published"
+    ride.seats_available += 1
+    if ride.status == "full":
+        ride.status = "published"
     db.commit()
     return {"success": True, "message": "Booking cancelled", "status": booking.status}
 
 
 class OTPRequest(BaseModel):
     otp: str
-
-
-@router.post("/{booking_id}/verify-otp")
-def verify_booking_otp(
-    booking_id: int,
-    payload: OTPRequest,
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
-):
-    booking = db.query(Booking).filter(Booking.id == booking_id).first()
-    if not booking:
-        raise HTTPException(status_code=404, detail="Booking not found")
-    if booking.driver_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Only the driver can verify passenger OTP")
-
-    if booking.otp_code and payload.otp.strip() != booking.otp_code.strip():
-        raise HTTPException(status_code=400, detail="Invalid OTP code. Please check with passenger.")
-
-    booking.otp_verified = "true"
-    booking.status = "PICKED_UP"
-    db.commit()
-    db.refresh(booking)
-    return {"success": True, "message": "Passenger OTP verified. Pickup confirmed!", "status": booking.status}
 
 
 @router.post("/{booking_id}/complete-passenger")
@@ -615,11 +604,10 @@ def complete_passenger_journey(
     booking = db.query(Booking).filter(Booking.id == booking_id).first()
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
-    if booking.driver_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Only the driver can complete passenger journey")
-
-    booking.status = "COMPLETED"
-    booking.completed_at = datetime.utcnow()
-    db.commit()
-    db.refresh(booking)
+    booking = complete_booking_for_driver(
+        db=db,
+        booking_id=booking_id,
+        driver_id=current_user.id,
+    )
     return {"success": True, "message": "Passenger journey completed!", "status": booking.status}
+

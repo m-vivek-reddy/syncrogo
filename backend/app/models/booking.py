@@ -5,6 +5,7 @@ from sqlalchemy import (
     Integer,
     String,
     Float,
+    Boolean,
     DateTime,
     ForeignKey,
 )
@@ -135,9 +136,10 @@ class Booking(Base):
     )
 
     otp_verified = Column(
-        String,
+        Boolean,
         nullable=False,
-        default="false",
+        default=False,
+        server_default="false",
     )
 
     # =========================================================

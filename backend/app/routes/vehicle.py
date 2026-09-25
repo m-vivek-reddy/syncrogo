@@ -5,6 +5,7 @@ from app.models.vehicle import Vehicle
 from app.models.user import User
 from app.schemas.vehicle import VehicleCreate, VehicleResponse
 from app.routes.auth import get_current_user
+from app.services.ride_validation import normalize_vehicle_type
 
 router = APIRouter(
     prefix="/vehicles",
@@ -13,7 +14,7 @@ router = APIRouter(
 
 @router.post("/", response_model=VehicleResponse, status_code=status.HTTP_201_CREATED)
 def register_vehicle(
-    vehicle_data: VehicleCreate, 
+    vehicle_data: VehicleCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -26,18 +27,25 @@ def register_vehicle(
     if existing_vehicle:
         raise HTTPException(status_code=400, detail="License plate already registered")
 
+    # Validate the vehicle type server-side so a driver cannot register an
+    # unsupported tier and later offer rides under it.
+    vehicle_type = None
+    if vehicle_data.vehicle_type is not None and str(vehicle_data.vehicle_type).strip():
+        vehicle_type = normalize_vehicle_type(vehicle_data.vehicle_type)
+
     new_vehicle = Vehicle(
         driver_id=current_user.id,
         make=vehicle_data.make,
         model=vehicle_data.model,
         license_plate=vehicle_data.license_plate,
-        capacity=vehicle_data.capacity
+        capacity=vehicle_data.capacity,
+        vehicle_type=vehicle_type,
     )
-    
+
     db.add(new_vehicle)
     db.commit()
     db.refresh(new_vehicle)
-    
+
     return new_vehicle
 
 
@@ -71,6 +79,10 @@ def update_my_vehicle(
     vehicle.model = vehicle_data.model
     vehicle.license_plate = vehicle_data.license_plate
     vehicle.capacity = vehicle_data.capacity
+    # Only overwrite the stored type when the client explicitly supplies one,
+    # so PATCH-style callers that omit it do not silently clear the value.
+    if vehicle_data.vehicle_type is not None and str(vehicle_data.vehicle_type).strip():
+        vehicle.vehicle_type = normalize_vehicle_type(vehicle_data.vehicle_type)
 
     db.add(vehicle)
     db.commit()

@@ -154,6 +154,14 @@ export default function FindRide() {
       if (bookingResult.success) {
         alert('Seat booked. Payment will be available after ride completion.');
         await handleSearch({ preventDefault: () => undefined } as React.FormEvent);
+      } else if (bookingResult.cashFeeBlock) {
+        // Driver has unpaid prior-day cash fees — new assignments paused (402).
+        const amount = Number(bookingResult.cashFeeBlock.outstanding ?? 0).toFixed(0);
+        alert(
+          `🔒 New Ride Assignments Paused\n\nThis driver has ₹${amount} in unpaid cash-ride platform fees. ` +
+            'Their current rides are not affected, but they must settle the outstanding amount to accept new bookings. ' +
+            'Please try another driver.'
+        );
       } else {
         alert(`Booking failed: ${bookingResult.error}`);
       }

@@ -5,16 +5,30 @@ from fastapi import HTTPException, status
 from app.models.wallet import Wallet, Transaction, TransactionType, TransactionStatus
 
 
-def get_or_create_wallet(db: Session, user_id: int, commit: bool = True) -> Wallet:
+def get_or_create_wallet(db: Session, user_id: int, commit: bool = True, lock: bool = False) -> Wallet:
     """Retrieve a user's wallet, or create one if it doesn't exist."""
-    wallet = db.query(Wallet).filter(Wallet.user_id == user_id).first()
+    query = db.query(Wallet).filter(Wallet.user_id == user_id)
+    if lock:
+        query = query.with_for_update()
+    wallet = query.first()
     if not wallet:
         wallet = Wallet(user_id=user_id, balance=0.0, pending_balance=0.0)
         db.add(wallet)
-        db.flush()
-        if commit:
-            db.commit()
-        db.refresh(wallet)
+        try:
+            db.flush()
+            if commit:
+                db.commit()
+            db.refresh(wallet)
+            if lock:
+                wallet = db.query(Wallet).filter(Wallet.id == wallet.id).with_for_update().first()
+        except Exception:
+            db.rollback()
+            query = db.query(Wallet).filter(Wallet.user_id == user_id)
+            if lock:
+                query = query.with_for_update()
+            wallet = query.first()
+            if not wallet:
+                raise
     return wallet
 
 
@@ -29,7 +43,7 @@ def credit_driver_earnings(db: Session, driver_id: int, amount: float, ride_id: 
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Credit amount must be positive."
         )
-    wallet = get_or_create_wallet(db, driver_id, commit=commit)
+    wallet = get_or_create_wallet(db, driver_id, commit=commit, lock=True)
     wallet.balance += amount
 
     transaction = Transaction(
@@ -49,7 +63,7 @@ def credit_driver_earnings(db: Session, driver_id: int, amount: float, ride_id: 
 
 def request_withdrawal(db: Session, user_id: int, amount: float) -> Transaction:
     """Handle a driver withdrawal request."""
-    wallet = get_or_create_wallet(db, user_id)
+    wallet = get_or_create_wallet(db, user_id, lock=True)
     if wallet.balance < amount:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
