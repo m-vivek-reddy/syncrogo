@@ -26,6 +26,13 @@ npm-debug.*
 yarn-debug.*
 yarn-error.*
 
+# build/runtime logs & crash dumps (large, machine-specific)
+crash.txt
+*-log.txt
+eas-build.log
+metro_log.txt
+*.log
+
 # macOS
 .DS_Store
 *.pem
