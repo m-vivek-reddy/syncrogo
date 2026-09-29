@@ -209,7 +209,7 @@ app.include_router(cash_fees.router)
 # Root endpoint
 # ---------------------------------------------------------
 
-@app.get("/")
+@app.api_route("/", methods=["GET", "HEAD"])
 def read_root():
     return {
         "message": "Welcome to SyncroGo API!",
@@ -230,7 +230,7 @@ def favicon():
 # Health check
 # ---------------------------------------------------------
 
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])
 def health_check():
     """Liveness only - must never touch the database."""
     return {
