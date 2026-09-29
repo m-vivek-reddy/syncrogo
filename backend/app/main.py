@@ -13,6 +13,7 @@ for _env_file in [
         break
 
 from fastapi import FastAPI, Response
+from sqlalchemy import text
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -80,10 +81,48 @@ from app.api import pricing
 # Create FastAPI application
 # ---------------------------------------------------------
 
+from contextlib import asynccontextmanager
+
+
+def _init_db(retries: int = 5, delay: float = 3.0) -> bool:
+    """Connect with retries and create tables.
+
+    Runs at startup (not at import time) so a cold / restarting database or a
+    momentarily unavailable Supabase pooler cannot crash the process and take
+    the whole service down. Returns True when the schema is reachable.
+    """
+    import time
+
+    for attempt in range(1, retries + 1):
+        try:
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            Base.metadata.create_all(bind=engine)
+            print(f"[db] schema ready (attempt {attempt}/{retries})")
+            return True
+        except Exception as exc:  # noqa: BLE001 - never kill the process
+            print(f"[db] init attempt {attempt}/{retries} failed: {type(exc).__name__}")
+            if attempt < retries:
+                time.sleep(delay)
+    print("[db] database unreachable - API will serve, DB routes will 503 until it recovers")
+    return False
+
+
+DB_READY = False
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    global DB_READY
+    DB_READY = _init_db()
+    yield
+
+
 app = FastAPI(
     title="SyncroGo API",
     description="Backend API for SyncroGo carpool and ride-sharing platform",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 UPLOAD_DIR = Path(__file__).resolve().parents[1] / "uploads"
@@ -121,6 +160,7 @@ app.add_middleware(
         "http://localhost:8000",
         "http://127.0.0.1:8000",
         "https://hj4cqztk-5173.inc1.devtunnels.ms",
+        "https://hj4cqztk-8000.inc1.devtunnels.ms",
         "https://syncrogo-backend.onrender.com",
     ],
     # SECURITY: no wildcard origin regex — the allowlist above is authoritative.
@@ -134,8 +174,9 @@ app.add_middleware(
 # ---------------------------------------------------------
 # Create database tables
 # ---------------------------------------------------------
-
-Base.metadata.create_all(bind=engine)
+# NOTE: table creation happens in the `lifespan` startup handler (_init_db),
+# NOT here at import time. Connecting during import crashed uvicorn before it
+# could serve a single request whenever the database was briefly unavailable.
 
 
 # ---------------------------------------------------------
@@ -190,7 +231,25 @@ def favicon():
 
 @app.get("/health")
 def health_check():
+    """Liveness only - must never touch the database."""
     return {
         "status": "healthy",
         "service": "SyncroGo API",
     }
+
+
+@app.get("/health/ready")
+def readiness_check():
+    """Readiness probe - reports real database connectivity."""
+    import app.db.database as db_module
+
+    try:
+        with db_module.engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        return {"status": "ready", "database": "up"}
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "status": "degraded",
+            "database": "down",
+            "error": type(exc).__name__,
+        }, 503

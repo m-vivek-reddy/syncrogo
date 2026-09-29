@@ -3,6 +3,8 @@ import os
 import re
 import smtplib
 from html import escape
+
+import httpx
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
@@ -11,7 +13,9 @@ from dotenv import load_dotenv
 logger = logging.getLogger(__name__)
 
 # Ensure environment is loaded if not already present.
-if not os.getenv("SMTP_EMAIL") or not os.getenv("SMTP_PASSWORD"):
+if not os.getenv("SMTP_EMAIL") or not os.getenv("SMTP_PASSWORD") or not os.getenv(
+    "RESEND_API_KEY"
+):
     for _env_path in [
         Path(__file__).resolve().parent.parent.parent / ".env",
         Path.cwd() / "backend" / ".env",
@@ -22,10 +26,59 @@ if not os.getenv("SMTP_EMAIL") or not os.getenv("SMTP_PASSWORD"):
             break
 
 
+_RESEND_ENDPOINT = "https://api.resend.com/emails"
+
+
+def _send_mail_resend(
+    to_email: str, subject: str, html_body: str, sender_email: str, api_key: str
+) -> bool:
+    """Send transactional email through the Resend HTTP API."""
+    payload = {
+        "from": sender_email,
+        "to": [to_email],
+        "subject": subject,
+        "html": html_body,
+    }
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+
+    try:
+        response = httpx.post(
+            _RESEND_ENDPOINT, json=payload, headers=headers, timeout=20.0
+        )
+        if response.status_code >= 400:
+            logger.error(
+                "Resend rejected the message to %s (HTTP %s): %s",
+                to_email,
+                response.status_code,
+                response.text[:500],
+            )
+            return False
+        logger.info("Email sent successfully to %s via Resend", to_email)
+        return True
+    except Exception:
+        logger.exception("Failed to send email to %s via Resend", to_email)
+        return False
+
+
 def _send_mail(to_email: str, subject: str, html_body: str) -> bool:
-    """Send transactional email through Gmail SMTP."""
+    """Send transactional email via Resend when configured, else Gmail SMTP."""
     sender_email = (os.getenv("EMAIL_FROM") or "").strip()
     sender_email = (os.getenv("SMTP_EMAIL") or sender_email).strip()
+    resend_api_key = (os.getenv("RESEND_API_KEY") or "").strip()
+    resend_from = (os.getenv("RESEND_FROM") or "").strip() or sender_email
+
+    if resend_api_key:
+        if not resend_from or not to_email:
+            logger.warning(
+                "Email not sent to %s: RESEND_FROM/EMAIL_FROM is not configured.",
+                to_email,
+            )
+            return False
+        return _send_mail_resend(to_email, subject, html_body, resend_from, resend_api_key)
+
     sender_password = (os.getenv("SMTP_PASSWORD") or "").strip()
     smtp_host = (os.getenv("SMTP_HOST") or "smtp.gmail.com").strip()
 
@@ -40,7 +93,8 @@ def _send_mail(to_email: str, subject: str, html_body: str) -> bool:
 
     if not sender_email or not sender_password or not to_email:
         logger.warning(
-            "Email not sent to %s: SMTP_EMAIL/SMTP_PASSWORD are not configured.",
+            "Email not sent to %s: no email provider configured "
+            "(set RESEND_API_KEY, or SMTP_EMAIL/SMTP_PASSWORD).",
             to_email,
         )
         return False

@@ -93,6 +93,39 @@ except ArgumentError as _exc:
         "Variables). See the Render logs above for the exact parser error."
     ) from _exc
 
+# --- Supabase pooler sanity check ---------------------------------------------
+# Supabase's pooler identifies the project by the `postgres.<project-ref>` user
+# name. If the project was deleted, paused or the ref is wrong, the pooler
+# answers with: "FATAL: (ENOTFOUND) tenant/user postgres.<ref> not found".
+# That is a credentials/config problem, not a network or driver problem, so
+# surface it as such instead of a raw psycopg stack trace.
+_POOLER_HOST_MARKER = "pooler.supabase.com"
+_PG_USER = ""
+if not _is_sqlite:
+    try:
+        _parsed = make_url(DATABASE_URL)
+        _PG_USER = _parsed.username or ""
+    except Exception:  # noqa: BLE001 - non-fatal, only used for a hint
+        _PG_USER = ""
+
+if (
+    _PG_USER.startswith("postgres.")
+    and _POOLER_HOST_MARKER not in DATABASE_URL
+):
+    raise RuntimeError(
+        f"DATABASE_URL user '{_PG_USER}' is a Supabase pooler-style username, but "
+        "the host is not a pooler host. Use the full 'Session pooler' string from "
+        "Supabase → Project Settings → Database → Connection string."
+    )
+
+if _PG_USER.startswith("postgres.") and not _PG_USER[9:].strip():
+    raise RuntimeError(
+        f"DATABASE_URL user '{_PG_USER}' has an empty Supabase project ref after "
+        "'postgres.'. Expected 'postgres.<project-ref>'. Copy the connection "
+        "string again from the Supabase dashboard."
+    )
+
+
 SessionLocal = sessionmaker(
     autocommit=False,
     autoflush=False,
