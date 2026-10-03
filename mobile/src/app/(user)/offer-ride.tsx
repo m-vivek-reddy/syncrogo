@@ -23,6 +23,7 @@ import {
   type PlaceResult,
 } from "../../services/geocoding";
 import { fetchRoadRoute, type Coordinate } from "../../services/routing";
+import { getDriverDocumentReadiness } from "../../services/driverVerification";
 
 /*
  * Formats the selected departure date for display.
@@ -163,33 +164,15 @@ export default function OfferRideScreen() {
       const docs: { document_type: string; status: string }[] =
         res.data?.documents || (Array.isArray(res.data) ? res.data : []);
 
-      const pendingDocs = docs.filter(
-        (d) => (d.status || "").toLowerCase() === "pending"
+      const readiness = getDriverDocumentReadiness(docs);
+      setDocsPending(!readiness.ready);
+      setDocsPendingMessage(
+        readiness.ready
+          ? null
+          : readiness.pendingTypes.length > 0
+            ? "Your Driving Licence and Vehicle RC must both be approved before offering a ride."
+            : "An approved Driving Licence and Vehicle RC are required before offering a ride."
       );
-      if (pendingDocs.length > 0) {
-        setDocsPending(true);
-        setDocsPendingMessage(
-          "Your driver documents are currently pending verification. You cannot offer a ride until your documents are approved by the administrator."
-        );
-      } else if (docs.length === 0) {
-        setDocsPending(true);
-        setDocsPendingMessage(
-          "You must upload and verify your driver documents before offering a ride."
-        );
-      } else {
-        const hasApproved = docs.some((d) =>
-          ["approved", "verified"].includes((d.status || "").toLowerCase())
-        );
-        if (!hasApproved) {
-          setDocsPending(true);
-          setDocsPendingMessage(
-            "Your driver documents have not been approved yet. You cannot offer a ride until your documents are verified."
-          );
-        } else {
-          setDocsPending(false);
-          setDocsPendingMessage(null);
-        }
-      }
     } catch {
       // If network fails, do not aggressively block local testing
     }
@@ -486,25 +469,13 @@ export default function OfferRideScreen() {
       const res = await api.get("/api/v1/documents/");
       const docs: { document_type: string; status: string }[] =
         res.data?.documents || (Array.isArray(res.data) ? res.data : []);
-      const pendingDocs = docs.filter(
-        (d) => (d.status || "").toLowerCase() === "pending"
-      );
-      const hasApproved = docs.some((d) =>
-        ["approved", "verified"].includes((d.status || "").toLowerCase())
-      );
-      if (pendingDocs.length > 0) {
-        submitBlocked = true;
-        submitBlockMessage =
-          "Your driver documents are currently pending verification. You cannot offer a ride until your documents are approved by the administrator.";
-      } else if (docs.length === 0 || !hasApproved) {
-        submitBlocked = true;
-        submitBlockMessage = docs.length === 0
-          ? "You must upload and verify your driver documents before offering a ride."
-          : "Your driver documents have not been approved yet. You cannot offer a ride until your documents are verified.";
-      } else {
-        submitBlocked = false;
-        submitBlockMessage = null;
-      }
+      const readiness = getDriverDocumentReadiness(docs);
+      submitBlocked = !readiness.ready;
+      submitBlockMessage = readiness.ready
+        ? null
+        : readiness.pendingTypes.length > 0
+          ? "Your Driving Licence and Vehicle RC must both be approved before offering a ride."
+          : "An approved Driving Licence and Vehicle RC are required before offering a ride.";
       setDocsPending(submitBlocked);
       setDocsPendingMessage(submitBlockMessage);
     } catch {

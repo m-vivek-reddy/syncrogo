@@ -105,6 +105,39 @@ class Ride(Base):
     )
 
     # =========================================================
+    # DRIVER LIVE POSITION
+    # =========================================================
+    # While the driver travels towards the pickup point, the remaining
+    # trip distance (and therefore the fare) shrinks. These columns hold the
+    # driver's latest reported position for that calculation.
+
+    driver_lat = Column(
+        Float,
+        nullable=True,
+    )
+
+    driver_lon = Column(
+        Float,
+        nullable=True,
+    )
+
+    location_updated_at = Column(
+        DateTime,
+        nullable=True,
+    )
+
+    # Distance snapshot the fare was locked at, once a passenger is onboard.
+    locked_distance_km = Column(
+        Float,
+        nullable=True,
+    )
+
+    locked_fare = Column(
+        Numeric(10, 2),
+        nullable=True,
+    )
+
+    # =========================================================
     # VEHICLE
     # =========================================================
 

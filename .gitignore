@@ -21,3 +21,8 @@ dist/
 
 # Generated diagnostics log
 mobile/doctor_log.txt
+.pytest_cache/
+_tmp_*
+_diag_*
+*.sqlite3
+syncrogo.db

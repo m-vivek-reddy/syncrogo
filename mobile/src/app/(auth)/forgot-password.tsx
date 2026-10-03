@@ -20,6 +20,7 @@ export default function ForgotPasswordScreen() {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   async function handleSubmit() {
     const cleanEmail = email.trim().toLowerCase();
@@ -30,6 +31,7 @@ export default function ForgotPasswordScreen() {
     }
 
     setLoading(true);
+    setError(null);
 
     try {
       await apiClient.post("/api/v1/users/forgot-password", {
@@ -47,17 +49,27 @@ export default function ForgotPasswordScreen() {
           },
         ]
       );
-    } catch {
-      Alert.alert(
-        "Request Submitted",
-        "If an account exists for this email, password reset instructions have been dispatched.",
-        [
-          {
-            text: "Back to Sign In",
-            onPress: () => router.replace("/(auth)/login"),
-          },
-        ]
-      );
+    } catch (err: any) {
+      /*
+       * The API deliberately returns 202 for both known and unknown emails,
+       * so success here does NOT confirm a mail was actually sent. Only
+       * surface a genuine failure, and name the URL so this is diagnosable.
+       */
+      const status = err?.response?.status;
+      const baseUrl = err?.config?.baseURL;
+
+      if (err?.response) {
+        setError(
+          status === 422
+            ? "That email address doesn't look valid. Please check it and try again."
+            : "We couldn't process your request (server error). Please try again in a moment."
+        );
+      } else {
+        setError(
+          `Could not reach the SyncroGo server at ${baseUrl ?? "the configured API URL"}. ` +
+            "Check your internet connection and try again."
+        );
+      }
     } finally {
       setLoading(false);
     }
@@ -101,11 +113,20 @@ export default function ForgotPasswordScreen() {
           </Text>
 
           <Text style={styles.label}>Email Address</Text>
+          {error && (
+            <View style={styles.errorBox}>
+              <Ionicons name="alert-circle" size={16} color="#DC2626" />
+              <Text style={styles.errorText}>{error}</Text>
+            </View>
+          )}
           <TextInput
             id="forgot-email"
             accessibilityLabel="Email Address"
             value={email}
-            onChangeText={setEmail}
+            onChangeText={(t) => {
+              setEmail(t);
+              if (error) setError(null);
+            }}
             placeholder="Enter your registered email"
             placeholderTextColor="#94A3B8"
             keyboardType="email-address"
@@ -226,6 +247,24 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: "#334155",
     marginBottom: 7,
+  },
+  errorBox: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 6,
+    backgroundColor: "#FEF2F2",
+    borderColor: "#FECACA",
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 12,
+  },
+  errorText: {
+    flex: 1,
+    color: "#DC2626",
+    fontSize: 11,
+    fontWeight: "700",
+    lineHeight: 15,
   },
   input: {
     height: 52,

@@ -189,6 +189,13 @@ def create_payment_order(payload: PaymentOrderSchema, db: Session = Depends(get_
 def verify_payment(payload: PaymentVerifySchema, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Verify a passenger payment after their booked ride has completed."""
 
+    # Resolve and authorize the booking before exposing an idempotent result.
+    booking = db.query(Booking).filter(Booking.id == payload.booking_id).with_for_update().first()
+    if not booking:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found.")
+    if booking.passenger_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the booking passenger can make payment.")
+
     # A retry with the same key returns the recorded payment and never credits twice.
     existing_payment = db.query(Payment).filter(Payment.idempotency_key == payload.idempotency_key).first()
     if existing_payment:
@@ -212,13 +219,6 @@ def verify_payment(payload: PaymentVerifySchema, db: Session = Depends(get_db), 
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid payment signature. Verification failed."
         )
-
-    # 2. Only the passenger of a completed booking may pay. Acquire lock on Booking.
-    booking = db.query(Booking).filter(Booking.id == payload.booking_id).with_for_update().first()
-    if not booking:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found.")
-    if booking.passenger_id != current_user.id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the booking passenger can make payment.")
 
     # Re-check under row lock:
     if booking.status == "PAID":

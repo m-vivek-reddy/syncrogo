@@ -23,6 +23,9 @@ import {
   type PlaceResult,
 } from "../../services/geocoding";
 import type { Coordinate } from "../../services/routing";
+import ConsentNoticeModal from "../../components/ConsentNoticeModal";
+import { recordLocationConsent } from "../../api/consent";
+import { CONSENT_COPY } from "../../legal/legalContent";
 
 type DriverOffer = {
   id: number;
@@ -55,6 +58,9 @@ export default function FindRide() {
   const [destinationCoord, setDestinationCoord] = useState<Coordinate | null>(null);
   const [selectionMode, setSelectionMode] = useState<"pickup" | "destination">("pickup");
 
+  // Pre-permission location consent (DPDP: explain before the OS dialog).
+  const [showLocationConsent, setShowLocationConsent] = useState(false);
+
   // Autocomplete state
   const [pickupSuggestions, setPickupSuggestions] = useState<PlaceResult[]>([]);
   const [destSuggestions, setDestSuggestions] = useState<PlaceResult[]>([]);
@@ -86,6 +92,13 @@ export default function FindRide() {
    * Explicitly set current location as pickup point
    */
   const handleUseCurrentLocation = useCallback(async () => {
+    // Pre-permission consent: explain why before the OS dialog appears.
+    setShowLocationConsent(true);
+  }, []);
+
+  const proceedWithLocation = useCallback(async () => {
+    setShowLocationConsent(false);
+    void recordLocationConsent(true);
     setGpsLoading(true);
     setActiveDropdown(null);
     try {
@@ -400,6 +413,15 @@ export default function FindRide() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      {/* Pre-permission location consent — explains why before the OS dialog. */}
+      <ConsentNoticeModal
+        visible={showLocationConsent}
+        title="Allow SyncroGo to use your location"
+        body={CONSENT_COPY.location_prompt}
+        actionLabel="Continue"
+        onProceed={proceedWithLocation}
+        onDismiss={() => setShowLocationConsent(false)}
+      />
       <View style={styles.header}>
         <Pressable onPress={() => router.back()} style={styles.backBtn}>
           <Text style={styles.backText}>‹</Text>

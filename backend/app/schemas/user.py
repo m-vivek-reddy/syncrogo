@@ -13,6 +13,18 @@ class UserCreate(BaseModel):
     phone: Optional[str] = None
     role: str = "passenger"
 
+    # ── Consent ──
+    # Terms and Privacy are mandatory and must be explicitly true. Optional
+    # consents default to False so nothing is processed until it is granted.
+    accept_terms: bool = False
+    accept_privacy: bool = False
+    consent_cookies: bool = False
+    consent_marketing_email: bool = False
+    consent_location: bool = False
+    consent_documents: bool = False
+    consent_sms: bool = False
+    consent_policy_version: Optional[str] = None
+
 
 # ==========================
 # USER RESPONSE
@@ -34,8 +46,34 @@ class UserResponse(BaseModel):
 
     created_at: datetime
 
+    # Current consent state, so clients can show the right toggles without a
+    # second round-trip.
+    consent_terms: bool = False
+    consent_privacy: bool = False
+    consent_cookies: bool = False
+    consent_marketing_email: bool = False
+    consent_location: bool = False
+    consent_documents: bool = False
+    consent_sms: bool = False
+
     class Config:
         from_attributes = True
+
+
+# ==========================
+# CONSENT SCHEMAS
+# ==========================
+class ConsentUpdate(BaseModel):
+    """Update one or more consent switches.
+
+    ``granted=False`` is a withdrawal and is always accepted.
+    """
+
+    purposes: list[str]
+    granted: bool = True
+    source: Optional[str] = None
+    note: Optional[str] = None
+    policy_version: Optional[str] = None
 
 
 # ==========================

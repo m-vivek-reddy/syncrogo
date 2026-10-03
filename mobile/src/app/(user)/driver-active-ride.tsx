@@ -466,6 +466,17 @@ export default function DriverActiveRideScreen() {
         vehicleType={data?.vehicle_type}
         height={mapHeight}
       />
+      {isRideStarted && data && (
+        <Pressable
+          onPress={() => router.push({
+            pathname: "/(user)/emergency" as any,
+            params: { ride_id: String(data.id) },
+          })}
+          style={{ backgroundColor: "#B91C1C", padding: 14, borderRadius: 12, alignItems: "center", marginVertical: 12 }}
+        >
+          <Text style={{ color: Colors.white, fontWeight: "800" }}>Emergency SOS</Text>
+        </Pressable>
+      )}
 
       {/* Manual GPS Refresh Button */}
       {isRideStarted && (

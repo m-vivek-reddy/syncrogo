@@ -22,6 +22,8 @@ from app.models.notification import Notification
 from app.models.report import Report
 from app.models.payment import PaymentMethod, Payment
 from app.models.document import Document
+from app.models.consent import ConsentRecord
+from app.models.privacy_request import PrivacyRequest, PrivacyRequestEvent
 
 load_dotenv()
 

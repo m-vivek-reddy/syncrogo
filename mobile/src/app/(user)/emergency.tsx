@@ -1,4 +1,5 @@
 import {
+  ActivityIndicator,
   Alert,
   Linking,
   Pressable,
@@ -8,61 +9,113 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { useState } from "react";
-import { router } from "expo-router";
+import { useCallback, useState } from "react";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
+import * as Location from "expo-location";
 import api from "../../api/client";
 import { Colors } from "../../constants/colors";
+import { buildSosPayload } from "../../services/sos";
 
 export default function EmergencyScreen() {
-  const [contacts, setContacts] = useState([
-    { id: 1, name: "Family Primary", phone: "+91 98765 00001", relation: "Parent" },
-    { id: 2, name: "Emergency Helpline", phone: "112", relation: "National Emergency" },
-  ]);
+  const { ride_id: rideIdParam } = useLocalSearchParams<{ ride_id?: string }>();
+  const [contacts, setContacts] = useState<{ id: number; name: string; phone: string }[]>([]);
 
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
-  const [relation, setRelation] = useState("");
   const [showAdd, setShowAdd] = useState(false);
   const [sosTriggered, setSosTriggered] = useState(false);
+  const [sendingSos, setSendingSos] = useState(false);
+  const [sosError, setSosError] = useState<string | null>(null);
+
+  const loadContacts = useCallback(async () => {
+    try {
+      const response = await api.get("/emergency-contacts/");
+      setContacts(response.data || []);
+    } catch (error: any) {
+      Alert.alert("Contacts unavailable", error?.response?.data?.detail || "Could not load trusted contacts.");
+    }
+  }, []);
+
+  useFocusEffect(useCallback(() => { void loadContacts(); }, [loadContacts]));
 
   const handleTriggerSOS = () => {
     Alert.alert(
       "⚠️ SEND SOS ALERT",
-      "This will immediately notify your emergency contacts and transmit your GPS coordinates to SyncroGo Safety Team.",
+      "This records an SOS alert with your current location. It does not call emergency services or guarantee that contacts are notified. Call 112 for immediate assistance.",
       [
         { text: "Cancel", style: "cancel" },
         {
           text: "SEND SOS NOW",
           style: "destructive",
           onPress: async () => {
+            setSendingSos(true);
+            setSosError(null);
             try {
-              await api.post("/api/v1/sos/trigger", {
-                lat: 17.4435,
-                lon: 78.3772,
+              const rideId = rideIdParam ? Number(rideIdParam) : undefined;
+              const { status } = await Location.requestForegroundPermissionsAsync();
+              if (status !== "granted") {
+                throw new Error("Location permission is required to send an SOS alert.");
+              }
+
+              const position = await Location.getCurrentPositionAsync({
+                accuracy: Location.Accuracy.High,
               });
-            } catch {
-              // ignore
+              const payload = buildSosPayload(
+                position.coords.latitude,
+                position.coords.longitude,
+                rideId,
+              );
+              await api.post("/api/v1/sos/trigger", payload);
+              setSosTriggered(true);
+              Alert.alert("SOS alert recorded", "If you need immediate help, call 112.");
+            } catch (error: any) {
+              const message =
+                error?.response?.data?.detail ||
+                error?.message ||
+                "The SOS request could not be sent. Please call 112 if you need immediate help.";
+              setSosTriggered(false);
+              setSosError(message);
+              Alert.alert("SOS not sent", message);
+            } finally {
+              setSendingSos(false);
             }
-            setSosTriggered(true);
-            Alert.alert("🚨 SOS Alert Dispatched", "Emergency contacts have been notified.");
           },
         },
       ]
     );
   };
 
-  const handleAddContact = () => {
+  const handleAddContact = async () => {
     if (!name.trim() || !phone.trim()) {
       return Alert.alert("Fields Required", "Please enter contact name and phone number.");
     }
-    setContacts((prev) => [
-      ...prev,
-      { id: Date.now(), name: name.trim(), phone: phone.trim(), relation: relation.trim() || "Contact" },
+    try {
+      await api.post("/emergency-contacts/", { name: name.trim(), phone: phone.trim() });
+      await loadContacts();
+      setName("");
+      setPhone("");
+      setShowAdd(false);
+    } catch (error: any) {
+      Alert.alert("Could not add contact", error?.response?.data?.detail || "Please try again.");
+    }
+  };
+
+  const handleDeleteContact = (contactId: number) => {
+    Alert.alert("Remove contact?", "This contact will be removed from your account.", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Remove",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await api.delete(`/emergency-contacts/${contactId}`);
+            await loadContacts();
+          } catch (error: any) {
+            Alert.alert("Could not remove contact", error?.response?.data?.detail || "Please try again.");
+          }
+        },
+      },
     ]);
-    setName("");
-    setPhone("");
-    setRelation("");
-    setShowAdd(false);
   };
 
   return (
@@ -75,15 +128,16 @@ export default function EmergencyScreen() {
       </View>
 
       {/* SOS Button */}
-      <Pressable onPress={handleTriggerSOS} style={styles.sosCard}>
-        <Text style={styles.sosEmoji}>🚨</Text>
+      <Pressable onPress={handleTriggerSOS} disabled={sendingSos} style={styles.sosCard}>
+        {sendingSos ? <ActivityIndicator color={Colors.white} /> : <Text style={styles.sosEmoji}>🚨</Text>}
         <Text style={styles.sosTitle}>
-          {sosTriggered ? "SOS ALERT ACTIVE" : "EMERGENCY SOS"}
+          {sendingSos ? "SENDING SOS..." : sosTriggered ? "SOS ALERT RECORDED" : "EMERGENCY SOS"}
         </Text>
         <Text style={styles.sosSub}>
-          Tap to broadcast your live location to trusted contacts
+          Send your current location to SyncroGo Safety. Call 112 for immediate assistance.
         </Text>
       </Pressable>
+      {sosError && <Text accessibilityRole="alert" style={styles.sosError}>{sosError}</Text>}
 
       <Text style={styles.sectionHeader}>Trusted Emergency Contacts</Text>
       {contacts.map((c) => (
@@ -94,13 +148,15 @@ export default function EmergencyScreen() {
           <View style={{ flex: 1 }}>
             <Text style={styles.cName}>{c.name}</Text>
             <Text style={styles.cPhone}>{c.phone}</Text>
-            <Text style={styles.cRel}>{c.relation}</Text>
           </View>
           <Pressable
             onPress={() => Linking.openURL(`tel:${c.phone}`)}
             style={styles.callBtn}
           >
             <Text style={{ fontSize: 16 }}>📞</Text>
+          </Pressable>
+          <Pressable onPress={() => handleDeleteContact(c.id)} style={styles.callBtn}>
+            <Text style={{ fontSize: 16, color: "#B91C1C" }}>×</Text>
           </Pressable>
         </View>
       ))}
@@ -125,14 +181,6 @@ export default function EmergencyScreen() {
             placeholder="+91 98765 43210"
             placeholderTextColor="#94A3B8"
           />
-          <Text style={[styles.label, { marginTop: 10 }]}>RELATION</Text>
-          <TextInput
-            style={styles.input}
-            value={relation}
-            onChangeText={setRelation}
-            placeholder="e.g. Spouse / Friend"
-            placeholderTextColor="#94A3B8"
-          />
           <View style={styles.btnRow}>
             <Pressable onPress={() => setShowAdd(false)} style={styles.cancelBtn}>
               <Text style={styles.cancelBtnText}>Cancel</Text>
@@ -153,6 +201,7 @@ export default function EmergencyScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#F8FAFC" },
+  sosError: { color: "#B91C1C", fontSize: 13, fontWeight: "700", marginTop: -12, marginBottom: 16 },
   content: { padding: 16, paddingBottom: 40 },
   header: { flexDirection: "row", alignItems: "center", marginBottom: 16, marginTop: 4 },
   backBtn: {

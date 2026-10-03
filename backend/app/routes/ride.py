@@ -14,6 +14,7 @@ from app.models.user import User
 from app.routes.auth import get_current_user
 from app.services.ride_service import modify_ride_price
 from app.services.pricing_service import calculate_ride_fare
+from app.services.driver_verification import assert_driver_documents_approved
 from app.services.booking_state_service import complete_ride_bookings
 from app.services.ride_validation import (
     enforce_driver_vehicle_type,
@@ -22,6 +23,18 @@ from app.services.ride_validation import (
     validate_coordinate_pair,
     validate_seat_count,
 )
+from app.services.ride_progress_service import (
+    lock_ride_price,
+    recalculate_ride_distance_and_fare,
+    update_driver_position,
+)
+
+
+class DriverLocationUpdate(BaseModel):
+    """Live GPS fix from the driver's device while the trip is pending."""
+
+    latitude: float
+    longitude: float
 
 
 router = APIRouter(
@@ -108,25 +121,7 @@ def publish_ride_offer(
 ):
     current_driver_id = current_user.id
 
-    # Verify that driver documents are not pending verification before offering a ride
-    user_docs = db.query(Document).filter(Document.user_id == current_driver_id).all()
-    pending_docs = [d for d in user_docs if (d.status or "").lower() == "pending"]
-    if pending_docs:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Your driver documents are currently pending verification. You cannot offer a ride until your documents are approved.",
-        )
-    if not user_docs:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You must upload and have your driver documents verified before offering a ride.",
-        )
-    has_approved = any((d.status or "").lower() in ["approved", "verified"] for d in user_docs)
-    if not has_approved:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Your driver documents have not been approved yet. You cannot offer a ride until your documents are verified.",
-        )
+    assert_driver_documents_approved(db, current_driver_id)
 
     # ------------------------------------------------------------
     # 1. Coordinate validation
@@ -239,6 +234,58 @@ def publish_ride_offer(
 
 
 # ============================================================
+# DRIVER LIVE LOCATION -> REDUCES DISTANCE & FARE
+# ============================================================
+
+@router.patch(
+    "/rides/{ride_id}/location",
+    status_code=status.HTTP_200_OK,
+)
+def update_ride_driver_location(
+    ride_id: int,
+    data: DriverLocationUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Report the driver's position.
+
+    While the ride has no passenger, every metre the driver covers towards the
+    pickup point reduces the remaining distance and the fare shown to
+    searching passengers. Once a passenger has booked the price is locked and
+    the endpoint reports ``locked`` without changing anything.
+    """
+    ride = db.query(Ride).filter(Ride.id == ride_id).first()
+    if not ride:
+        raise HTTPException(status_code=404, detail="Ride not found")
+
+    lat, lon = validate_coordinate_pair(data.latitude, data.longitude, "Driver")
+
+    progress = update_driver_position(
+        db=db,
+        ride=ride,
+        driver_id=current_user.id,
+        lat=lat,
+        lon=lon,
+    )
+
+    return {
+        "success": True,
+        "ride_id": ride.id,
+        "distance_km": progress["distance_km"],
+        "price_per_seat": progress["fare"],
+        "distance_saved_km": progress.get("distance_saved_km", 0.0),
+        "fare_saved": progress.get("fare_saved", 0.0),
+        "price_locked": progress.get("price_locked", False),
+        "message": progress.get("message")
+        or (
+            "Price is locked for this ride because a passenger has already booked."
+            if progress.get("reason") == "locked"
+            else f"Remaining distance {progress['distance_km']} km, fare Rs.{progress['fare']}"
+        ),
+    }
+
+
+# ============================================================
 # UPDATE RIDE PRICE
 # ============================================================
 
@@ -294,9 +341,28 @@ def serialize_ride_offer(db: Session, ride: Ride, passenger_lat: float, passenge
     # Rough ETA: assume ~25 km/h average city speed for the driver to reach
     eta_minutes = max(1, round((distance_km / 25.0) * 60)) if distance_km is not None else None
 
-    driver_lat = driver.latitude if driver else None
-    driver_lon = driver.longitude if driver else None
+    driver_lat = (ride.driver_lat if ride.driver_lat is not None
+                  else (driver.latitude if driver else None))
+    driver_lon = (ride.driver_lon if ride.driver_lon is not None
+                  else (driver.longitude if driver else None))
     driver_online = bool(driver.is_online) if driver else False
+
+    # Keep search results honest: refresh the shrinking distance/fare so a
+    # passenger searching mid-journey sees the current figure.
+    try:
+        recalculate_ride_distance_and_fare(db, ride)
+        db.commit()
+        db.refresh(ride)
+    except Exception:
+        db.rollback()
+
+    remaining_km = float(ride.distance_km or 0.0)
+    current_fare = float(ride.final_fare or ride.price_per_seat or 0.0)
+    locked = ride.locked_fare is not None
+
+    approach_km = None
+    if driver_lat is not None and driver_lon is not None and ride.pickup_lat is not None:
+        approach_km = round(calculate_distance(driver_lat, driver_lon, ride.pickup_lat, ride.pickup_lon), 2)
 
     return {
         "id": ride.id,
@@ -323,8 +389,13 @@ def serialize_ride_offer(db: Session, ride: Ride, passenger_lat: float, passenge
         "seats_available": ride.seats_available,
         "available_seats": ride.seats_available,
         "gender_preference": ride.gender_preference,
-        "distance_km": ride.distance_km,
+        "distance_km": remaining_km,
+        "remaining_distance_km": remaining_km,
+        "current_fare": current_fare,
+        "original_distance_km": float(ride.locked_distance_km or 0.0) if locked else None,
+        "price_locked": locked,
         "pickup_distance_km": round(distance_km, 2) if distance_km is not None else None,
+        "driver_pickup_distance_km": approach_km,
         "eta_minutes": eta_minutes,
         "status": ride.status,
     }
@@ -476,6 +547,11 @@ def get_active_driver_ride(
             "message": "No active rides",
         }
 
+    # Reflect the driver's latest position in the remaining distance/fare.
+    recalculate_ride_distance_and_fare(db, active_ride)
+    db.commit()
+    db.refresh(active_ride)
+
     # Retrieve booked passengers for this specific active ride
     passengers = []
     bookings = (
@@ -518,6 +594,11 @@ def get_active_driver_ride(
         "dropoff_lat": active_ride.dropoff_lat,
         "dropoff_lon": active_ride.dropoff_lon,
         "distance_km": active_ride.distance_km,
+        "remaining_distance_km": active_ride.distance_km,
+        "locked_distance_km": active_ride.locked_distance_km,
+        "price_locked": active_ride.locked_fare is not None,
+        "driver_lat": active_ride.driver_lat,
+        "driver_lon": active_ride.driver_lon,
         "vehicle_type": active_ride.vehicle_type,
         "price_per_seat": active_ride.price_per_seat or active_ride.final_fare,
         "available_seats": active_ride.seats_available,
@@ -589,6 +670,8 @@ def start_driver_ride(
         raise HTTPException(status_code=403, detail="Only the ride driver can start this ride")
 
     ride.status = "started"
+    if ride.locked_fare is None:
+        lock_ride_price(db, ride)
     db.commit()
     db.refresh(ride)
     return {"success": True, "message": "Ride started", "status": ride.status}

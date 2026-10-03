@@ -8,6 +8,7 @@ from decimal import Decimal
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
 from fastapi import HTTPException
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -278,10 +279,47 @@ def test_verify_payment_idempotency_success():
     assert res1["status"] == "success"
     assert res2["status"] == "PAID"
     assert "already processed" in res2["message"]
-
     driver_wallet = db.query(Wallet).filter(Wallet.user_id == driver.id).first()
-    # Credit happens ONCE only
     assert driver_wallet.balance == 90.0
+
+
+def test_verify_payment_known_idempotency_key_rejected_for_wrong_user():
+    db = make_session()
+    _, passenger, _, booking = make_test_data(db, fare=100.0, booking_status="PAID")
+    other_user = User(
+        email="other-passenger@x.com",
+        full_name="Other Passenger",
+        role="passenger",
+        password="password",
+        is_verified=True,
+    )
+    db.add(other_user)
+    db.commit()
+    db.add(
+        Payment(
+            booking_id=booking.id,
+            provider="razorpay",
+            provider_payment_id="pay_idempotent_owner",
+            amount=booking.fare,
+            status=Payment.PAID,
+            method=Payment.UPI,
+            idempotency_key="known_owner_key",
+        )
+    )
+    db.commit()
+    payload = PaymentVerifySchema(
+        razorpay_order_id="order_private",
+        razorpay_payment_id="pay_private",
+        razorpay_signature="unused-before-authorization",
+        booking_id=booking.id,
+        idempotency_key="known_owner_key",
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        verify_payment(payload, db, other_user)
+
+    assert exc.value.status_code == 403
+    assert "payment_id" not in str(exc.value.detail)
 
 
 def test_verify_payment_rejected_if_failed_status():

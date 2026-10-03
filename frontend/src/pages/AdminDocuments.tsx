@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { getDocuments, updateDocumentStatus } from "../services/adminApi";
+import { apiClient } from "../api/client";
 
 export default function AdminDocuments() {
   const [documents, setDocuments] = useState<any[]>([]);
@@ -29,6 +30,28 @@ export default function AdminDocuments() {
       fetchDocs();
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  const handlePreview = async (documentId: number) => {
+    try {
+      const response = await apiClient.get(`/api/v1/documents/${documentId}/file`, {
+        responseType: "blob",
+      });
+      const contentType = String(response.headers["content-type"] || "application/octet-stream");
+      const file = response.data instanceof Blob
+        ? response.data
+        : new Blob([response.data], { type: contentType });
+      const objectUrl = URL.createObjectURL(file);
+      const previewWindow = window.open(objectUrl, "_blank", "noopener,noreferrer");
+      if (!previewWindow) {
+        URL.revokeObjectURL(objectUrl);
+        window.alert("Allow pop-ups to preview this protected document.");
+        return;
+      }
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+    } catch (error: any) {
+      window.alert(error?.response?.data?.detail || "Could not load this protected document.");
     }
   };
 
@@ -87,7 +110,7 @@ export default function AdminDocuments() {
 
         <Card
           title="Approved"
-          value={documents.filter((d) => d.status === "verified" || d.status === "Approved").length.toString()}
+          value={documents.filter((d) => d.status === "approved").length.toString()}
           color="text-emerald-500"
         />
 
@@ -205,7 +228,14 @@ export default function AdminDocuments() {
                   <td className="text-center space-x-2 p-4">
 
                     <button
-                      onClick={() => handleUpdate(doc.id, "verified")}
+                      onClick={() => handlePreview(doc.id)}
+                      className="px-3 py-1.5 rounded-lg text-slate-700 font-medium text-xs bg-slate-100 hover:bg-slate-200 transition"
+                    >
+                      View
+                    </button>
+
+                    <button
+                      onClick={() => handleUpdate(doc.id, "approved")}
                       className="px-3 py-1.5 rounded-lg text-white font-medium text-xs bg-emerald-600 hover:bg-emerald-700 transition"
                     >
                       Approve
@@ -272,21 +302,16 @@ function Card({
 function Status({
   status,
 }: any) {
-
-  const styles: any = {
-
-    Pending:
+  const normalizedStatus = String(status).toLowerCase();
+  const styles: Record<string, string> = {
+    pending:
       "bg-amber-100 text-amber-700",
-
-    Approved:
+    approved:
       "bg-emerald-100 text-emerald-700",
-
-    Rejected:
+    rejected:
       "bg-red-100 text-red-700",
-
-    Expired:
+    expired:
       "bg-slate-200 text-slate-700",
-
   };
 
   return (
@@ -301,10 +326,10 @@ function Status({
       rounded-full
       text-xs
       font-semibold
-      ${styles[status]}
+      ${styles[normalizedStatus] || styles.pending}
       `}
     >
-      {status}
+      {normalizedStatus.charAt(0).toUpperCase() + normalizedStatus.slice(1)}
     </span>
 
   );

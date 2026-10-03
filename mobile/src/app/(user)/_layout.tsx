@@ -104,9 +104,14 @@ export default function UserLayout() {
       <Tabs.Screen name="preferences" options={{ href: null }} />
       <Tabs.Screen name="notifications" options={{ href: null }} />
       <Tabs.Screen name="support" options={{ href: null }} />
+      <Tabs.Screen name="legal" options={{ href: null }} />
       <Tabs.Screen name="vehicles" options={{ href: null }} />
       <Tabs.Screen name="driver-active-ride" options={{ href: null }} />
       <Tabs.Screen name="ride/[bookingId]" options={{ href: null }} />
+      <Tabs.Screen name="legal-document" options={{ href: null }} />
+      <Tabs.Screen name="consent-settings" options={{ href: null }} />
+      <Tabs.Screen name="privacy-requests" options={{ href: null }} />
+      <Tabs.Screen name="grievance" options={{ href: null }} />
     </Tabs>
   );
 }

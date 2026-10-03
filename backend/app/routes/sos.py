@@ -1,9 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.db.session import get_db
+from app.models.booking import Booking
+from app.models.ride import Ride
 from app.models.sos import SOSAlert
 from app.models.user import User
 from app.routes.auth import get_current_user
@@ -20,14 +22,65 @@ router = APIRouter(
 # ==========================================================
 
 class SOSTriggerSchema(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     ride_id: int | None = None
-    latitude: float
-    longitude: float
+    latitude: float = Field(ge=-90, le=90, allow_inf_nan=False)
+    longitude: float = Field(ge=-180, le=180, allow_inf_nan=False)
 
 
 # ==========================================================
 # Trigger SOS
 # ==========================================================
+
+def _assert_user_authorized_for_sos(db: Session, user: User, ride_id: int | None):
+    if ride_id is None:
+        active_driver_ride = (
+            db.query(Ride.id)
+            .filter(Ride.driver_id == user.id, Ride.status == "started")
+            .first()
+        )
+        active_passenger_booking = (
+            db.query(Booking.id)
+            .join(Ride, Booking.ride_id == Ride.id)
+            .filter(
+                Booking.passenger_id == user.id,
+                Booking.status.in_(["ACCEPTED", "STARTED"]),
+                Ride.status == "started",
+            )
+            .first()
+        )
+        if active_driver_ride or active_passenger_booking:
+            raise HTTPException(
+                status_code=400,
+                detail="ride_id is required while you are on an active ride.",
+            )
+        return
+
+    ride = db.query(Ride).filter(Ride.id == ride_id).first()
+    if not ride:
+        raise HTTPException(status_code=404, detail="Ride not found.")
+
+    if ride.status.lower() != "started":
+        raise HTTPException(status_code=400, detail="SOS is only valid for an active ride.")
+
+    if ride.driver_id == user.id:
+        return
+
+    matching_booking = (
+        db.query(Booking)
+        .filter(
+            Booking.ride_id == ride.id,
+            Booking.passenger_id == user.id,
+            Booking.status.in_(["ACCEPTED", "STARTED"]),
+        )
+        .first()
+    )
+    if not matching_booking:
+        raise HTTPException(
+            status_code=403,
+            detail="Not authorized to trigger SOS for this ride.",
+        )
 
 @router.post("/trigger", status_code=status.HTTP_201_CREATED)
 def trigger_sos(
@@ -38,6 +91,8 @@ def trigger_sos(
     """
     Trigger an emergency SOS alert.
     """
+
+    _assert_user_authorized_for_sos(db, current_user, payload.ride_id)
 
     alert = SOSAlert(
         user_id=current_user.id,

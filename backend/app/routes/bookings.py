@@ -20,6 +20,11 @@ from app.schemas.booking import (
 from app.routes.user import get_current_user
 from app.services.cash_fee_service import check_driver_assignment_eligibility
 from app.services.booking_state_service import complete_booking_for_driver
+from app.services.ride_progress_service import (
+    has_active_bookings,
+    lock_ride_price,
+    recalculate_ride_distance_and_fare,
+)
 
 router = APIRouter(
     prefix="/api/v1/bookings",
@@ -65,6 +70,12 @@ def create_booking(
     if ride.status not in {"available", "published"} or ride.seats_available <= 0:
         raise HTTPException(status_code=400, detail="Ride is no longer available")
 
+    # Refresh the distance/fare for the driver's latest position right before
+    # committing the passenger to a price, then freeze it: once a passenger is
+    # booked, driving closer can no longer change what they agreed to pay.
+    if not has_active_bookings(db, ride):
+        recalculate_ride_distance_and_fare(db, ride)
+
     existing = db.query(Booking).filter(
         Booking.ride_id == ride.id,
         Booking.passenger_id == current_user.id,
@@ -99,6 +110,8 @@ def create_booking(
     if ride.seats_available == 0:
         ride.status = "full"
     db.add(booking)
+    db.flush()
+    lock_ride_price(db, ride)
     db.add(Notification(
         user_id=ride.driver_id,
         title="New ride booking",
@@ -112,6 +125,8 @@ def create_booking(
         "success": True,
         "message": "Ride booking requested",
         "data": booking,
+        "locked_distance_km": ride.locked_distance_km,
+        "locked_fare": ride.locked_fare,
     }
 
 

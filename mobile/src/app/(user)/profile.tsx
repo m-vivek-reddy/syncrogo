@@ -16,6 +16,7 @@ import { Ionicons } from "@expo/vector-icons";
 import api, { API_BASE_URL } from "../../api/client";
 import { Colors } from "../../constants/colors";
 import { useAuthStore } from "../../store/auth";
+import { getDriverDocumentReadiness } from "../../services/driverVerification";
 
 const resolvePhotoUrl = (url?: string) => {
   if (!url) return undefined;
@@ -135,20 +136,10 @@ export default function Profile() {
   const memberSince = profile?.created_at
     ? new Date(profile.created_at).getFullYear().toString()
     : new Date().getFullYear().toString();
-  // Required document types for a driver to be considered fully verified.
-  // Identity + vehicle docs all need to be approved (not pending/rejected).
-  const REQUIRED_DRIVER_DOCUMENTS = ["aadhaar", "pan", "license", "rc_book", "vehicle_insurance", "pollution_certificate"];
-  const documentsByType = documents.reduce<Record<string, string>>((acc, doc) => {
-    acc[doc.document_type] = doc.status;
-    return acc;
-  }, {});
-  const driverDocsApproved = REQUIRED_DRIVER_DOCUMENTS.every(
-    (type) => documentsByType[type] === "approved" || documentsByType[type] === "verified"
-  );
-  const driverDocsRejected = REQUIRED_DRIVER_DOCUMENTS.some(
-    (type) => documentsByType[type] === "rejected"
-  );
-  // Email must be verified AND, for drivers, all required documents approved.
+  const driverDocumentReadiness = getDriverDocumentReadiness(documents);
+  const driverDocsApproved = driverDocumentReadiness.ready;
+  const driverDocsRejected = driverDocumentReadiness.rejectedTypes.length > 0;
+  // Email verification plus an approved Driving Licence and Vehicle RC are required.
   const emailVerified = profile?.is_verified ?? false;
   const isVerified = isDriver ? emailVerified && driverDocsApproved : emailVerified;
   const verificationStatus: "verified" | "pending" | "rejected" = isDriver

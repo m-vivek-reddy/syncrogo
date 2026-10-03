@@ -8,6 +8,7 @@ import {
 } from "react-native";
 import { router } from "expo-router";
 import { Colors } from "../../constants/colors";
+import { ENTITY } from "../../legal/legalContent";
 
 export default function SupportScreen() {
   const faqs = [
@@ -31,10 +32,16 @@ export default function SupportScreen() {
           Need help with a ride or account? Our team is here for you.
         </Text>
         <Pressable
-          onPress={() => Linking.openURL("mailto:support@syncrogo.com")}
+          onPress={() => Linking.openURL(`mailto:${ENTITY.supportEmail}`)}
           style={styles.contactBtn}
         >
           <Text style={styles.contactBtnText}>✉️ Email Support</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => router.push("/(user)/grievance" as any)}
+          style={[styles.contactBtn, styles.grievanceBtn]}
+        >
+          <Text style={styles.contactBtnText}>Privacy grievance</Text>
         </Pressable>
       </View>
 
@@ -83,6 +90,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   contactBtnText: { color: Colors.white, fontWeight: "800", fontSize: 13 },
+  grievanceBtn: { marginTop: 8, backgroundColor: Colors.text },
   sectionTitle: { fontSize: 14, fontWeight: "800", color: Colors.text, marginBottom: 10 },
   faqCard: {
     backgroundColor: Colors.white,

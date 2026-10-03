@@ -24,12 +24,27 @@ from app.db.session import get_db
 
 from app.models.user import User
 from app.models.rating import Rating
+from app.models.consent import ALL_PURPOSES
+from app.models.booking import Booking
+from app.models.ride import Ride
+from app.models.payment import Payment
 
 from app.schemas.user import (
+    ConsentUpdate,
     UserCreate,
     UserResponse,
     UserUpdate,
 )
+
+from app.services.consent_service import (
+    POLICY_VERSION,
+    assert_required_consent,
+    record_consent,
+    requires_active_consent,
+    serialize_consent,
+    serialize_consent_history,
+)
+from app.services.account_deletion import process_account_deletion
 
 from app.schemas.rating import RatingSummaryResponse
 
@@ -161,6 +176,15 @@ def build_user_response(
         "rating": rating_summary.average_score,
         "total_reviews": rating_summary.review_count,
         "created_at": user.created_at,
+        # Consent state travels with the profile so the client can render the
+        # correct toggles without an extra request.
+        "consent_terms": bool(user.consent_terms),
+        "consent_privacy": bool(user.consent_privacy),
+        "consent_cookies": bool(user.consent_cookies),
+        "consent_marketing_email": bool(user.consent_marketing_email),
+        "consent_location": bool(user.consent_location),
+        "consent_documents": bool(user.consent_documents),
+        "consent_sms": bool(user.consent_sms),
     }
 
 
@@ -329,12 +353,20 @@ def reset_password(
 )
 def register_user(
     user: UserCreate,
+    request: Request,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
     """
     Register a new user and send email OTP.
+
+    Terms and Privacy consent is mandatory. Optional consents are recorded only
+    when explicitly granted, and every decision is written to the immutable
+    consent_records audit trail.
     """
+
+    # ── Consent gate: fail before we create anything ──
+    assert_required_consent(user, user.accept_terms, user.accept_privacy)
 
     existing_user = (
         db.query(User)
@@ -370,6 +402,40 @@ def register_user(
     db.commit()
     db.refresh(new_user)
 
+    # ── Persist consent (audit trail + user flags) ──
+    client_ip = None
+    if request and request.client:
+        client_ip = request.client.host
+
+    record_consent(
+        db=db,
+        user=new_user,
+        purposes=["terms", "privacy"],
+        granted=True,
+        source="registration",
+        note="accept_terms_accept_privacy",
+        ip_address=client_ip,
+        policy_version=user.consent_policy_version or POLICY_VERSION,
+    )
+
+    # Optional consents, only those actually granted.
+    optional_granted = [
+        purpose
+        for purpose in ("cookies", "marketing_email", "location", "documents", "sms")
+        if getattr(user, f"consent_{purpose}", False)
+    ]
+    if optional_granted:
+        record_consent(
+            db=db,
+            user=new_user,
+            purposes=optional_granted,
+            granted=True,
+            source="registration",
+            note="optional_consent",
+            ip_address=client_ip,
+            policy_version=user.consent_policy_version or POLICY_VERSION,
+        )
+
     background_tasks.add_task(
         send_otp_email,
         new_user.email,
@@ -378,6 +444,69 @@ def register_user(
     )
 
     return new_user
+
+
+# =========================================================
+# CONSENT — READ / UPDATE / HISTORY
+# =========================================================
+
+@router.get("/me/consent")
+def get_my_consent(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Current consent state for the signed-in user."""
+    from app.models.consent import ConsentRecord
+
+    records = (
+        db.query(ConsentRecord)
+        .filter(ConsentRecord.user_id == current_user.id)
+        .order_by(ConsentRecord.created_at.desc())
+        .limit(100)
+        .all()
+    )
+
+    return {
+        "success": True,
+        **serialize_consent(current_user),
+        "history": serialize_consent_history(records),
+    }
+
+
+@router.put("/me/consent")
+def update_my_consent(
+    data: ConsentUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Grant or withdraw consent. ``granted=False`` withdraws immediately.
+
+    Withdrawing terms or privacy is allowed and takes effect right away; it
+    does not delete the account, but it stops further processing.
+    """
+    client_ip = request.client.host if request and request.client else None
+
+    record_consent(
+        db=db,
+        user=current_user,
+        purposes=data.purposes,
+        granted=data.granted,
+        source=data.source or "account_settings",
+        note=data.note,
+        ip_address=client_ip,
+        policy_version=data.policy_version or POLICY_VERSION,
+    )
+
+    return {
+        "success": True,
+        "message": (
+            "Consent updated. Your choice has been saved."
+            if data.granted
+            else "Consent withdrawn. You can change this at any time in Settings."
+        ),
+        **serialize_consent(current_user),
+    }
 
 
 # =========================================================
@@ -1018,112 +1147,14 @@ def delete_own_account(
             ),
         )
 
-    target_user_id = current_user.id
-
-    dependent_deletes = [
-        ("documents", "user_id"),
-        ("payment_methods", "user_id"),
-        ("payments", "user_id"),
-        ("notifications", "user_id"),
-        ("emergency_contacts", "user_id"),
-        ("sos_alerts", "user_id"),
-        ("vehicles", "driver_id"),
-        ("wallets", "user_id"),
-        ("messages", "sender_id"),
-        ("messages", "receiver_id"),
-        ("ratings", "reviewer_id"),
-        ("ratings", "reviewee_id"),
-        ("reports", "reporter_id"),
-    ]
-
-    for table, column in dependent_deletes:
-
-        try:
-
-            db.execute(
-                text(
-                    f"DELETE FROM {table} "
-                    f"WHERE {column} = :user_id"
-                ),
-                {
-                    "user_id": target_user_id
-                },
-            )
-
-        except Exception:
-            pass
-
-    try:
-
-        db.execute(
-            text(
-                "DELETE FROM transactions "
-                "WHERE wallet_id IN "
-                "(SELECT id FROM wallets "
-                "WHERE user_id = :user_id)"
-            ),
-            {
-                "user_id": target_user_id
-            },
-        )
-
-    except Exception:
-        pass
-
-    try:
-
-        db.execute(
-            text(
-                "UPDATE reports "
-                "SET reported_user_id = NULL "
-                "WHERE reported_user_id = :user_id"
-            ),
-            {
-                "user_id": target_user_id
-            },
-        )
-
-    except Exception:
-        pass
-
-    try:
-
-        db.execute(
-            text(
-                "DELETE FROM bookings "
-                "WHERE passenger_id = :user_id "
-                "OR driver_id = :user_id"
-            ),
-            {
-                "user_id": target_user_id
-            },
-        )
-
-    except Exception:
-        pass
-
-    try:
-
-        db.execute(
-            text(
-                "DELETE FROM rides "
-                "WHERE driver_id = :user_id"
-            ),
-            {
-                "user_id": target_user_id
-            },
-        )
-
-    except Exception:
-        pass
-
-    db.delete(current_user)
-
-    db.commit()
+    deletion = process_account_deletion(
+        db=db,
+        user=current_user,
+        actor_user_id=current_user.id,
+        source="self_service",
+    )
 
     return {
-        "message": (
-            "Your account has been "
-            "deleted successfully."
-        )
+        "message": "Your account has been anonymized and removed from active processing.",
+        "privacy_request_id": deletion["request_id"],
     }

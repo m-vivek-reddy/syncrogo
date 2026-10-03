@@ -1,15 +1,21 @@
 from datetime import datetime
+from enum import Enum
 from typing import List
 
 from pydantic import BaseModel
+
+
+class DocumentStatus(str, Enum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
 
 
 class DocumentResponse(BaseModel):
     id: int
     user_id: int
     document_type: str
-    file_path: str
-    status: str
+    status: DocumentStatus
     uploaded_at: datetime
 
     class Config:
@@ -17,7 +23,7 @@ class DocumentResponse(BaseModel):
 
 
 class DocumentStatusUpdate(BaseModel):
-    status: str
+    status: DocumentStatus
 
 
 class DocumentListResponse(BaseModel):

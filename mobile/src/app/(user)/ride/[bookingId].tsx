@@ -288,6 +288,17 @@ export default function RideNavigation() {
         vehicleType={data?.driver_info?.vehicle}
         height={360}
       />
+      {isStarted && data?.ride_id && (
+        <Pressable
+          onPress={() => router.push({
+            pathname: "/(user)/emergency" as any,
+            params: { ride_id: String(data.ride_id) },
+          })}
+          style={{ backgroundColor: "#B91C1C", padding: 14, borderRadius: 12, alignItems: "center", marginVertical: 12 }}
+        >
+          <Text style={{ color: Colors.white, fontWeight: "800" }}>Emergency SOS</Text>
+        </Pressable>
+      )}
 
       {/* Ride Status Banner */}
       <View style={styles.statusBanner}>

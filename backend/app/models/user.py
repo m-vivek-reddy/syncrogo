@@ -174,6 +174,74 @@ class User(Base):
     )
 
     # =========================================================
+    # CONSENT
+    # =========================================================
+    # Current-state mirror of the latest entry in the consent_records audit
+    # trail. Required consents gate account use; optional consents each drive
+    # one processing activity (marketing mail, live location, document review,
+    # SMS/OTP). All optional consents default to False — no record means no
+    # consent, so processing never happens by default.
+
+    consent_terms = Column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+    )
+
+    consent_privacy = Column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+    )
+
+    consent_cookies = Column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+    )
+
+    consent_marketing_email = Column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+    )
+
+    consent_location = Column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+    )
+
+    consent_documents = Column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+    )
+
+    consent_sms = Column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+    )
+
+    consent_recorded_at = Column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    consent_policy_version = Column(
+        String,
+        nullable=True,
+    )
+
+    # =========================================================
     # NAME PROPERTY
     # =========================================================
 

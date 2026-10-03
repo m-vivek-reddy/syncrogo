@@ -1,7 +1,9 @@
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Switch,
@@ -11,15 +13,59 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useAuth } from "../../auth/AuthContext";
+import apiClient from "../../api/client";
 
 export default function AdminSettingsScreen() {
   const { user, logout } = useAuth();
 
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [apiOnline, setApiOnline] = useState(false);
+  const [dbStatus, setDbStatus] = useState("Unknown");
   const [autoVerifyDocs, setAutoVerifyDocs] = useState(false);
-  const [instantSosAlerts, setInstantSosAlerts] = useState(true);
   const [allowCashRides, setAllowCashRides] = useState(true);
   const [maintenanceMode, setMaintenanceMode] = useState(false);
-  const [smsOtpGateway, setSmsOtpGateway] = useState(true);
+
+  const fetchSettings = useCallback(async () => {
+    try {
+      const res = await apiClient.get<any>("/admin/settings");
+      const data = res.data || res;
+      setApiOnline(true);
+      setDbStatus(data.services?.database?.status || "Connected");
+      setAllowCashRides(!!data.allow_cash_rides);
+      setMaintenanceMode(!!data.maintenance_mode);
+      setAutoVerifyDocs(!!data.auto_verify_documents);
+    } catch {
+      // Settings unreachable means the API itself is not reachable.
+      setApiOnline(false);
+      setDbStatus("Not reachable");
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void fetchSettings();
+  }, [fetchSettings]);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    void fetchSettings();
+  };
+
+  const saveSetting = async (
+    key: "allow_cash_rides" | "maintenance_mode" | "auto_verify_documents",
+    value: boolean
+  ) => {
+    try {
+      await apiClient.patch("/admin/settings", { [key]: value });
+      return true;
+    } catch {
+      Alert.alert("Error", "Could not save the setting. Check your connection and try again.");
+      return false;
+    }
+  };
 
   const handleToggleMaintenance = (val: boolean) => {
     if (val) {
@@ -31,28 +77,25 @@ export default function AdminSettingsScreen() {
           {
             text: "Enable",
             style: "destructive",
-            onPress: () => setMaintenanceMode(true),
+            onPress: async () => {
+              if (await saveSetting("maintenance_mode", true)) setMaintenanceMode(true);
+            },
           },
         ]
       );
     } else {
-      setMaintenanceMode(false);
+      void (async () => {
+        if (await saveSetting("maintenance_mode", false)) setMaintenanceMode(false);
+      })();
     }
   };
 
-  const handleClearCache = () => {
-    Alert.alert(
-      "Clear Server Cache",
-      "Redis routing cache and geocoding buffers will be flushed.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Flush Cache",
-          onPress: () =>
-            Alert.alert("Cache Cleared", "Platform cache successfully flushed."),
-        },
-      ]
-    );
+  const handleToggleCash = async (val: boolean) => {
+    if (await saveSetting("allow_cash_rides", val)) setAllowCashRides(val);
+  };
+
+  const handleToggleAutoVerify = async (val: boolean) => {
+    if (await saveSetting("auto_verify_documents", val)) setAutoVerifyDocs(val);
   };
 
   const handleLogout = () => {
@@ -79,40 +122,46 @@ export default function AdminSettingsScreen() {
     .toUpperCase();
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      {/* Platform Status */}
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+    >
+      {/* Platform Status — real, derived from whether /admin/settings is reachable */}
       <View style={styles.statusCard}>
         <View style={styles.statusHeader}>
           <Text style={styles.statusTitle}>Backend Infrastructure</Text>
-          <View style={styles.livePill}>
-            <View style={styles.greenDot} />
-            <Text style={styles.livePillText}>ALL SYSTEMS OPERATIONAL</Text>
+          <View style={[styles.livePill, !apiOnline && styles.livePillDown]}>
+            <View style={[styles.greenDot, !apiOnline && styles.redDot]} />
+            <Text style={[styles.livePillText, !apiOnline && styles.livePillTextDown]}>
+              {apiOnline ? "ALL SYSTEMS OPERATIONAL" : "API UNREACHABLE"}
+            </Text>
           </View>
         </View>
 
         <View style={styles.servicesGrid}>
           <View style={styles.serviceItem}>
-            <Ionicons name="server-outline" size={16} color="#16A34A" />
+            <Ionicons name="server-outline" size={16} color={apiOnline ? "#16A34A" : "#DC2626"} />
             <Text style={styles.serviceName}>FastAPI API</Text>
-            <Text style={styles.serviceStatus}>Online (10.0.2.2)</Text>
+            <Text style={styles.serviceStatus}>{apiOnline ? "Online" : "Unreachable"}</Text>
           </View>
 
           <View style={styles.serviceItem}>
-            <Ionicons name="file-tray-stacked-outline" size={16} color="#16A34A" />
+            <Ionicons name="file-tray-stacked-outline" size={16} color={apiOnline ? "#16A34A" : "#DC2626"} />
             <Text style={styles.serviceName}>PostgreSQL DB</Text>
-            <Text style={styles.serviceStatus}>Connected</Text>
+            <Text style={styles.serviceStatus}>{dbStatus}</Text>
           </View>
 
           <View style={styles.serviceItem}>
-            <Ionicons name="navigate-outline" size={16} color="#16A34A" />
-            <Text style={styles.serviceName}>OSRM Router</Text>
-            <Text style={styles.serviceStatus}>Ready</Text>
+            <Ionicons name="card-outline" size={16} color={apiOnline ? "#16A34A" : "#DC2626"} />
+            <Text style={styles.serviceName}>Payments (Razorpay)</Text>
+            <Text style={styles.serviceStatus}>{apiOnline ? "Active" : "Unknown"}</Text>
           </View>
 
           <View style={styles.serviceItem}>
-            <Ionicons name="chatbox-ellipses-outline" size={16} color="#16A34A" />
-            <Text style={styles.serviceName}>SMS/Email OTP</Text>
-            <Text style={styles.serviceStatus}>Active</Text>
+            <Ionicons name="chatbox-ellipses-outline" size={16} color={apiOnline ? "#16A34A" : "#DC2626"} />
+            <Text style={styles.serviceName}>Email OTP</Text>
+            <Text style={styles.serviceStatus}>{apiOnline ? "Active" : "Unknown"}</Text>
           </View>
         </View>
       </View>
@@ -135,11 +184,11 @@ export default function AdminSettingsScreen() {
 
         <View style={styles.settingRow}>
           <View style={styles.settingInfo}>
-            <Text style={styles.settingLabel}>Base City Rate</Text>
-            <Text style={styles.settingSub}>Hyderabad Standard Fare</Text>
+            <Text style={styles.settingLabel}>Cash Ride Fee</Text>
+            <Text style={styles.settingSub}>Per completed cash ride, settled daily</Text>
           </View>
           <View style={styles.valueBadge}>
-            <Text style={styles.valueBadgeText}>₹8.50 / km</Text>
+            <Text style={styles.valueBadgeText}>₹10.00</Text>
           </View>
         </View>
 
@@ -152,7 +201,7 @@ export default function AdminSettingsScreen() {
           </View>
           <Switch
             value={allowCashRides}
-            onValueChange={setAllowCashRides}
+            onValueChange={handleToggleCash}
             trackColor={{ false: "#CBD5E1", true: "#DCFCE7" }}
             thumbColor={allowCashRides ? "#16A34A" : "#94A3B8"}
           />
@@ -165,27 +214,12 @@ export default function AdminSettingsScreen() {
       <View style={styles.card}>
         <View style={styles.settingRow}>
           <View style={styles.settingInfo}>
-            <Text style={styles.settingLabel}>Instant SOS Police Escalation</Text>
-            <Text style={styles.settingSub}>Auto-dispatch notification to 112</Text>
-          </View>
-          <Switch
-            value={instantSosAlerts}
-            onValueChange={setInstantSosAlerts}
-            trackColor={{ false: "#CBD5E1", true: "#DCFCE7" }}
-            thumbColor={instantSosAlerts ? "#16A34A" : "#94A3B8"}
-          />
-        </View>
-
-        <View style={styles.divider} />
-
-        <View style={styles.settingRow}>
-          <View style={styles.settingInfo}>
             <Text style={styles.settingLabel}>Auto-Verify Clear Documents</Text>
-            <Text style={styles.settingSub}>AI validation on driving licenses</Text>
+            <Text style={styles.settingSub}>Approve documents passing provider checks</Text>
           </View>
           <Switch
             value={autoVerifyDocs}
-            onValueChange={setAutoVerifyDocs}
+            onValueChange={handleToggleAutoVerify}
             trackColor={{ false: "#CBD5E1", true: "#DCFCE7" }}
             thumbColor={autoVerifyDocs ? "#16A34A" : "#94A3B8"}
           />
@@ -195,15 +229,10 @@ export default function AdminSettingsScreen() {
 
         <View style={styles.settingRow}>
           <View style={styles.settingInfo}>
-            <Text style={styles.settingLabel}>SMS OTP Delivery</Text>
-            <Text style={styles.settingSub}>Two-step login security delivery</Text>
+            <Text style={styles.settingLabel}>SOS Emergency Protocol</Text>
+            <Text style={styles.settingSub}>Admin escalates manually to 112</Text>
           </View>
-          <Switch
-            value={smsOtpGateway}
-            onValueChange={setSmsOtpGateway}
-            trackColor={{ false: "#CBD5E1", true: "#DCFCE7" }}
-            thumbColor={smsOtpGateway ? "#16A34A" : "#94A3B8"}
-          />
+          <Ionicons name="information-circle-outline" size={20} color="#2563EB" />
         </View>
       </View>
 
@@ -223,16 +252,6 @@ export default function AdminSettingsScreen() {
             thumbColor={maintenanceMode ? "#DC2626" : "#94A3B8"}
           />
         </View>
-
-        <View style={styles.divider} />
-
-        <Pressable onPress={handleClearCache} style={styles.settingRow}>
-          <View style={styles.settingInfo}>
-            <Text style={styles.settingLabel}>Flush Server & Router Cache</Text>
-            <Text style={styles.settingSub}>Purge Redis & map buffers</Text>
-          </View>
-          <Ionicons name="trash-bin-outline" size={20} color="#D97706" />
-        </Pressable>
       </View>
 
       {/* Current Admin Session */}
@@ -249,9 +268,9 @@ export default function AdminSettingsScreen() {
               {user?.full_name || (user as any)?.name || "Super Admin"}
             </Text>
             <Text style={styles.adminEmail}>
-              {user?.email || "admin@syncrogo.com"}
+              {user?.email || "admin@syncrogo.in"}
             </Text>
-            <Text style={styles.adminRole}>Role: Super Administrator</Text>
+            <Text style={styles.adminRole}>Role: Administrator</Text>
           </View>
         </View>
 
@@ -298,6 +317,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 6,
+  },
+  livePillDown: {
+    backgroundColor: "rgba(220, 38, 38, 0.2)",
+  },
+  redDot: {
+    backgroundColor: "#DC2626",
+  },
+  livePillTextDown: {
+    color: "#FCA5A5",
   },
   greenDot: {
     width: 6,

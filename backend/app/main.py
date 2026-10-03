@@ -15,7 +15,6 @@ for _env_file in [
 from fastapi import FastAPI, Response
 from sqlalchemy import text
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 
 from app.middleware.security import (
     SecurityHeadersMiddleware,
@@ -51,6 +50,8 @@ from app.models.platform_setting import PlatformSetting
 from app.models.coupon import Coupon
 from app.models.sos import SOSAlert
 from app.models.emergency_contact import EmergencyContact
+from app.models.consent import ConsentRecord
+from app.models.privacy_request import PrivacyRequest
 
 # ---------------------------------------------------------
 # Import application routes
@@ -72,6 +73,8 @@ from app.routes import notifications
 from app.routes import emergency_contact
 from app.routes import bookings
 from app.routes import cash_fees
+from app.routes import privacy
+from app.routes import drivers
 
 # API routers
 from app.api import pricing
@@ -127,8 +130,9 @@ app = FastAPI(
 
 UPLOAD_DIR = Path(__file__).resolve().parents[1] / "uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
-app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
+# The uploads directory is kept private: document files are served only through
+# a signed-in API route after owner authorization checks.
 
 # ---------------------------------------------------------
 # Security & Rate Limiting Middleware
@@ -203,13 +207,15 @@ app.include_router(pricing.router)
 app.include_router(emergency_contact.router)
 app.include_router(bookings.router)
 app.include_router(cash_fees.router)
+app.include_router(privacy.router)
+app.include_router(drivers.router)
 
 
 # ---------------------------------------------------------
 # Root endpoint
 # ---------------------------------------------------------
 
-@app.api_route("/", methods=["GET", "HEAD"])
+@app.get("/")
 def read_root():
     return {
         "message": "Welcome to SyncroGo API!",
@@ -230,7 +236,7 @@ def favicon():
 # Health check
 # ---------------------------------------------------------
 
-@app.api_route("/health", methods=["GET", "HEAD"])
+@app.get("/health")
 def health_check():
     """Liveness only - must never touch the database."""
     return {

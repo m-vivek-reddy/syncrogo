@@ -1,9 +1,12 @@
-import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useCallback, useState } from "react";
 import { router, useFocusEffect } from "expo-router";
 import * as DocumentPicker from "expo-document-picker";
 import api from "../../api/client";
 import { Colors } from "../../constants/colors";
+import ConsentNoticeModal from "../../components/ConsentNoticeModal";
+import { recordDocumentConsent } from "../../api/consent";
+import { CONSENT_COPY } from "../../legal/legalContent";
 
 type UploadedDocument = { id: number; document_type: string; status: "verified" | "pending" | "rejected"; file_url: string };
 const sections = [
@@ -22,6 +25,8 @@ const sections = [
 export default function DocumentsScreen() {
   const [documents, setDocuments] = useState<UploadedDocument[]>([]);
   const [uploadingType, setUploadingType] = useState<string | null>(null);
+  // Pre-upload verification consent (DPDP: explain before documents are shared).
+  const [pendingUpload, setPendingUpload] = useState<{ type: string; title: string } | null>(null);
   const loadDocuments = useCallback(async () => {
     try { const { data } = await api.get("/api/v1/documents/"); setDocuments(data.documents || []); }
     catch { Alert.alert("Could not load documents", "Please try again when you are online."); }
@@ -29,6 +34,14 @@ export default function DocumentsScreen() {
   useFocusEffect(useCallback(() => { void loadDocuments(); }, [loadDocuments]));
 
   const uploadDocument = async (type: string, title: string) => {
+    // First upload in this session: show the verification notice first.
+    setPendingUpload({ type, title });
+  };
+
+  const proceedUpload = async () => {
+    const { type, title } = pendingUpload!;
+    setPendingUpload(null);
+    void recordDocumentConsent(true);
     const result = await DocumentPicker.getDocumentAsync({ type: ["application/pdf", "image/jpeg", "image/png"], copyToCacheDirectory: true });
     if (result.canceled) return;
     const file = result.assets[0];
@@ -46,6 +59,17 @@ export default function DocumentsScreen() {
   };
 
   return <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    {/* Pre-upload verification consent — explains what happens to documents. */}
+    <ConsentNoticeModal
+      visible={pendingUpload !== null}
+      title="Driver Verification"
+      body={CONSENT_COPY.driver_verification}
+      confirmLabel={CONSENT_COPY.driver_verification_ack}
+      confirmLabelRequired
+      actionLabel="Continue Verification"
+      onProceed={proceedUpload}
+      onDismiss={() => setPendingUpload(null)}
+    />
     <View style={styles.header}><Pressable onPress={() => router.replace("/(user)/profile")} style={styles.backBtn}><Text style={styles.backText}>Back</Text></Pressable><Text style={styles.headerTitle}>Identity and Documents</Text></View>
     <View style={styles.banner}><Text style={styles.bannerTitle}>Verified Community</Text><Text style={styles.bannerText}>Your documents are reviewed to keep rides safe and trusted.</Text></View>
     {sections.map((section) => <View key={section.title} style={styles.section}>
@@ -62,7 +86,7 @@ export default function DocumentsScreen() {
             {status === "pending" && <Text style={[styles.status, styles.pending]}>Under review</Text>}
             {status === "rejected" && <Text style={[styles.status, styles.rejected]}>Rejected</Text>}
             {canReplace && <Pressable onPress={() => uploadDocument(item.id, item.title)} style={styles.uploadBtn}><Text style={styles.uploadText}>{uploadingType === item.id ? "Uploading" : document ? "Replace" : "Upload"}</Text></Pressable>}
-            {document && <Pressable onPress={() => Linking.openURL(document.file_url)}><Text style={styles.viewText}>View</Text></Pressable>}
+            {document && <Pressable onPress={() => router.push({ pathname: "/document-viewer" as any, params: { document_id: String(document.id) } })}><Text style={styles.viewText}>View</Text></Pressable>}
           </View>
         </View>;
       })}

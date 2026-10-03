@@ -11,19 +11,19 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { router } from "expo-router";
 import { Colors } from "../../constants/colors";
 import apiClient from "../../api/client";
 
 type DocumentItem = {
   id: number;
-  driver_id: number;
-  driver_name: string;
-  driver_email: string;
-  doc_type: "license" | "rc" | "insurance" | "aadhaar" | string;
-  doc_number?: string;
-  submitted_at: string;
+  user_id: number;
+  document_type: string;
+  uploaded_at: string;
+  file_url: string;
   status: "pending" | "approved" | "rejected";
-  file_url?: string;
+  driver_name?: string;
+  driver_email?: string;
 };
 
 export default function AdminDocumentsScreen() {
@@ -59,7 +59,7 @@ export default function AdminDocumentsScreen() {
     const actionName = status === "approved" ? "Approve" : "Reject";
     Alert.alert(
       `${actionName} Document`,
-      `Are you sure you want to ${status} this ${doc.doc_type.toUpperCase()} for ${doc.driver_name}?`,
+      `Are you sure you want to ${status} this ${doc.document_type.toUpperCase()} for ${doc.driver_name || `user #${doc.user_id}`}?`,
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -67,11 +67,15 @@ export default function AdminDocumentsScreen() {
           style: status === "rejected" ? "destructive" : "default",
           onPress: async () => {
             try {
-              await apiClient.patch(`/admin/documents/${doc.id}`, { status });
-            } catch {}
-            setDocuments((prev) =>
-              prev.map((d) => (d.id === doc.id ? { ...d, status } : d))
-            );
+              await apiClient.patch(`/admin/documents/${doc.id}`, null, { params: { status } });
+              await fetchDocuments();
+            } catch (error: any) {
+              Alert.alert(
+                "Update failed",
+                error?.response?.data?.detail || "Could not update this document. Please retry."
+              );
+              return;
+            }
             Alert.alert("Success", `Document marked as ${status}.`);
           },
         },
@@ -84,9 +88,14 @@ export default function AdminDocumentsScreen() {
       case "license":
         return { label: "Driving License (DL)", icon: "id-card-outline", color: "#2563EB" };
       case "rc":
+      case "rc_book":
         return { label: "Vehicle RC", icon: "car-outline", color: "#16A34A" };
       case "insurance":
+      case "vehicle_insurance":
         return { label: "Vehicle Insurance", icon: "shield-checkmark-outline", color: "#7C3AED" };
+      case "pollution_certificate":
+      case "puc":
+        return { label: "Pollution Certificate", icon: "document-text-outline", color: "#475569" };
       case "aadhaar":
         return { label: "Aadhaar Card", icon: "finger-print-outline", color: "#D97706" };
       default:
@@ -97,10 +106,9 @@ export default function AdminDocumentsScreen() {
   const filteredDocs = documents.filter((d) => {
     const nameStr = (d.driver_name || "").toLowerCase();
     const emailStr = (d.driver_email || "").toLowerCase();
-    const numStr = (d.doc_number || "").toLowerCase();
     const query = search.toLowerCase().trim();
     const matchesSearch =
-      !query || nameStr.includes(query) || emailStr.includes(query) || numStr.includes(query);
+      !query || nameStr.includes(query) || emailStr.includes(query) || d.document_type.toLowerCase().includes(query);
 
     if (filterStatus === "all") return matchesSearch;
     return matchesSearch && d.status === filterStatus;
@@ -173,7 +181,7 @@ export default function AdminDocumentsScreen() {
             </View>
           }
           renderItem={({ item }) => {
-            const docInfo = getDocTypeInfo(item.doc_type);
+            const docInfo = getDocTypeInfo(item.document_type);
 
             return (
               <View style={styles.card}>
@@ -194,13 +202,10 @@ export default function AdminDocumentsScreen() {
                   <View style={styles.docDetails}>
                     <Text style={styles.docType}>{docInfo.label}</Text>
                     <Text style={styles.driverName}>
-                      Driver: <Text style={styles.boldText}>{item.driver_name}</Text>
-                    </Text>
-                    <Text style={styles.docNumber}>
-                      Doc #: {item.doc_number || "Verified on file"}
+                      Driver: <Text style={styles.boldText}>{item.driver_name || `User #${item.user_id}`}</Text>
                     </Text>
                     <Text style={styles.dateText}>
-                      Submitted: {item.submitted_at}
+                      Submitted: {item.uploaded_at}
                     </Text>
                   </View>
 
@@ -228,6 +233,13 @@ export default function AdminDocumentsScreen() {
                     </Text>
                   </View>
                 </View>
+
+                <Pressable
+                  onPress={() => router.push({ pathname: "/document-viewer" as any, params: { document_id: String(item.id) } })}
+                  style={styles.viewDocumentBtn}
+                >
+                  <Text style={styles.viewDocumentText}>View document</Text>
+                </Pressable>
 
                 {/* Actions */}
                 {item.status === "pending" && (
@@ -426,6 +438,19 @@ const styles = StyleSheet.create({
   },
   statusBadgeText: {
     letterSpacing: 0.5,
+  },
+  viewDocumentBtn: {
+    alignSelf: "flex-start",
+    marginTop: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 8,
+    backgroundColor: "#EFF6FF",
+  },
+  viewDocumentText: {
+    color: "#1D4ED8",
+    fontSize: 12,
+    fontWeight: "800",
   },
   actionsRow: {
     flexDirection: "row",

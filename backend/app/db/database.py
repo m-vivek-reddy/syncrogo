@@ -69,8 +69,17 @@ connect_args = {"check_same_thread": False} if _is_sqlite else {}
 engine_kwargs = {}
 if not _is_sqlite:
     engine_kwargs = {
+        # Keep-alive ping before reusing a connection from the pool.
+        # Required for Supabase pooler which closes idle connections server-side.
         "pool_pre_ping": True,
-        "pool_recycle": 300,
+        # Recycle connections older than 10 min (Supabase pooler default timeout is ~10m).
+        "pool_recycle": 600,
+        # Number of persistent connections kept open.
+        "pool_size": 5,
+        # Extra connections allowed when pool is exhausted (total max = pool_size + max_overflow).
+        "max_overflow": 10,
+        # Seconds to wait for a connection before raising OperationalError.
+        "pool_timeout": 30,
     }
 
 try:

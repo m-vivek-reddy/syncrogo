@@ -28,12 +28,16 @@ for _mod in pkgutil.iter_modules(_models.__path__):
     importlib.import_module(f"app.models.{_mod.name}")
 
 import pytest
+from pydantic import ValidationError
 
 from app.models.user import User
 from app.models.vehicle import Vehicle
 from app.models.document import Document
 from app.models.ride import Ride
+from app.schemas.document import DocumentStatus, DocumentStatusUpdate
+from app.routes.admin import update_document_status, verify_admin_role
 from app.routes.ride import RideOfferCreate, publish_ride_offer
+from app.services.driver_verification import normalize_document_type
 from app.services import ride_validation
 from app.services.ride_validation import (
     enforce_driver_vehicle_type,
@@ -110,13 +114,21 @@ def make_driver(db, email="offer_driver@x.com", vehicle_type=None, with_docs=Tru
         db.commit()
 
     if with_docs:
-        db.add(
-            Document(
-                user_id=driver.id,
-                document_type="driving_licence",
-                file_path="test/approved.pdf",
-                status="approved",
-            )
+        db.add_all(
+            [
+                Document(
+                    user_id=driver.id,
+                    document_type="driving_licence",
+                    file_path="test/approved-license.pdf",
+                    status="approved",
+                ),
+                Document(
+                    user_id=driver.id,
+                    document_type="rc_book",
+                    file_path="test/approved-rc.pdf",
+                    status="approved",
+                ),
+            ]
         )
         db.commit()
 
@@ -337,6 +349,114 @@ def test_bike_registered_driver_can_offer_bike_ride():
     )
     assert result["success"] is True
     assert db.query(Ride).one().vehicle_type == "bike"
+
+
+@pytest.mark.parametrize(
+    ("approved_type", "missing_type"),
+    [("license", "rc_book"), ("rc_book", "license")],
+)
+def test_ride_offer_requires_both_license_and_rc(approved_type, missing_type):
+    db = make_session()
+    driver = make_driver(db, vehicle_type="car", with_docs=False)
+    db.add(
+        Document(
+            user_id=driver.id,
+            document_type=approved_type,
+            file_path=f"test/{approved_type}.pdf",
+            status="approved",
+        )
+    )
+    db.commit()
+
+    with pytest.raises(HTTPException) as exc:
+        publish_ride_offer(make_offer(), db, driver)
+
+    assert exc.value.status_code == 403
+
+
+def test_ride_offer_accepts_both_approved_required_documents():
+    db = make_session()
+    driver = make_driver(db, vehicle_type="car")
+
+    result = publish_ride_offer(make_offer(), db, driver)
+
+    assert result["success"] is True
+
+
+def test_rejected_required_document_blocks_ride_offer():
+    db = make_session()
+    driver = make_driver(db, vehicle_type="car", with_docs=False)
+    db.add_all(
+        [
+            Document(user_id=driver.id, document_type="license", file_path="test/license.pdf", status="rejected"),
+            Document(user_id=driver.id, document_type="rc_book", file_path="test/rc.pdf", status="approved"),
+        ]
+    )
+    db.commit()
+
+    with pytest.raises(HTTPException) as exc:
+        publish_ride_offer(make_offer(), db, driver)
+
+    assert exc.value.status_code == 403
+
+
+def test_document_type_aliases_are_bounded():
+    assert normalize_document_type("Driving Licence") == "license"
+    assert normalize_document_type("Vehicle RC") == "rc_book"
+    assert normalize_document_type("arbitrary_admin") is None
+
+
+def test_admin_document_approval_uses_canonical_status():
+    db = make_session()
+    driver = make_driver(db, vehicle_type="car", with_docs=False)
+    document = Document(
+        user_id=driver.id,
+        document_type="license",
+        file_path="test/license.pdf",
+        status="pending",
+    )
+    db.add(document)
+    db.commit()
+    admin = User(email="admin@x.com", full_name="Admin", role="admin", password="password")
+    db.add(admin)
+    db.commit()
+
+    assert verify_admin_role(admin) is admin
+    result = update_document_status(document.id, DocumentStatus.APPROVED, db, admin)
+
+    assert result["document"]["status"] == "approved"
+
+
+def test_admin_document_rejection_uses_canonical_status():
+    db = make_session()
+    driver = make_driver(db, vehicle_type="car", with_docs=False)
+    document = Document(
+        user_id=driver.id,
+        document_type="rc_book",
+        file_path="test/rc.pdf",
+        status="pending",
+    )
+    admin = User(email="admin-reject@x.com", full_name="Admin", role="admin", password="password")
+    db.add_all([document, admin])
+    db.commit()
+
+    result = update_document_status(document.id, DocumentStatus.REJECTED, db, admin)
+
+    assert result["document"]["status"] == "rejected"
+
+
+def test_legacy_verified_status_is_not_accepted_as_review_input():
+    with pytest.raises(ValidationError):
+        DocumentStatusUpdate(status="verified")
+
+
+def test_ordinary_user_cannot_review_documents():
+    user = User(email="ordinary@x.com", full_name="Ordinary", role="driver", password="password")
+
+    with pytest.raises(HTTPException) as exc:
+        verify_admin_role(user)
+
+    assert exc.value.status_code == 403
 
 
 def test_driver_without_registered_vehicle_type_is_not_blocked():

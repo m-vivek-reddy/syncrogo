@@ -10,23 +10,51 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { router } from "expo-router";
 import { Colors } from "../../constants/colors";
 import { useAuth } from "../../auth/AuthContext";
 import { useAuthStore } from "../../store/auth";
 import apiClient from "../../api/client";
+import { fetchConsent, updateConsent, type ConsentState } from "../../api/consent";
+import { CONSENT_PURPOSES, POLICY_VERSION, EFFECTIVE_DATE, ENTITY } from "../../legal/legalContent";
 
 export default function SettingsScreen() {
   const { user, logout } = useAuth();
-  const [pushEnabled, setPushEnabled] = useState(true);
-  const [emailAlerts, setEmailAlerts] = useState(true);
-  const [locationTracking, setLocationTracking] = useState(true);
+  const [consent, setConsent] = useState<ConsentState | null>(null);
+  const [savingKey, setSavingKey] = useState<string | null>(null);
+  const [flash, setFlash] = useState<string | null>(null);
 
   // Delete account state
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [confirmEmail, setConfirmEmail] = useState("");
   const [deleting, setDeleting] = useState(false);
+
+  useEffect(() => {
+    void fetchConsent().then((res) => {
+      if (res.ok && res.data) setConsent(res.data);
+    });
+  }, []);
+
+  const toggle = async (key: string) => {
+    if (!consent) return;
+    const currently = consent.consent[key as keyof typeof consent.consent];
+    setSavingKey(key);
+    setFlash(null);
+    const res = await updateConsent([key as any], !currently, "settings_toggle");
+    setSavingKey(null);
+    if (res.ok && res.data) {
+      setConsent(res.data);
+      setFlash(
+        !currently
+          ? "Consent granted. Your choice has been saved."
+          : "Consent withdrawn. This takes effect immediately."
+      );
+      setTimeout(() => setFlash(null), 4000);
+    } else {
+      Alert.alert("Settings", res.message ?? "Could not save your choice.");
+    }
+  };
 
   const handleDeleteAccount = async () => {
     const cleanEmail = confirmEmail.trim().toLowerCase();
@@ -71,49 +99,88 @@ export default function SettingsScreen() {
         <Text style={styles.headerTitle}>App Settings</Text>
       </View>
 
-      <Text style={styles.sectionTitle}>Notifications</Text>
+      {flash && (
+        <View style={styles.flashCard}>
+          <Text style={styles.flashText}>{flash}</Text>
+        </View>
+      )}
+
+      <Text style={styles.sectionTitle}>Privacy & Consent</Text>
       <View style={styles.card}>
-        <View style={styles.row}>
-          <View style={styles.info}>
-            <Text style={styles.title}>Push Notifications</Text>
-            <Text style={styles.sub}>Instant alerts for ride updates</Text>
+        {consent ? (
+          CONSENT_PURPOSES.map((purpose, index) => {
+            const key = purpose.key as keyof typeof consent.consent;
+            const on = consent.consent[key];
+            const isSaving = savingKey === purpose.key;
+            return (
+              <View key={purpose.key} style={index > 0 ? styles.rowBorder : styles.row}>
+                <View style={styles.info}>
+                  <View style={styles.titleRow}>
+                    <Text style={styles.title}>{purpose.label}</Text>
+                    {purpose.required && <Text style={styles.requiredBadge}>REQUIRED</Text>}
+                  </View>
+                  <Text style={styles.sub}>{purpose.description}</Text>
+                </View>
+                <Switch
+                  value={on}
+                  onValueChange={() => toggle(purpose.key)}
+                  disabled={isSaving}
+                  trackColor={{ false: "#CBD5E1", true: purpose.required ? Colors.green : Colors.primary }}
+                />
+              </View>
+            );
+          })
+        ) : (
+          <View style={styles.loadingRow}>
+            <ActivityIndicator size="small" color={Colors.primary} />
+            <Text style={styles.loadingText}>Loading your consent settings…</Text>
           </View>
-          <Switch value={pushEnabled} onValueChange={setPushEnabled} trackColor={{ false: "#CBD5E1", true: Colors.primary }} />
-        </View>
-        <View style={[styles.row, styles.border]}>
-          <View style={styles.info}>
-            <Text style={styles.title}>Email Receipts & Invoices</Text>
-            <Text style={styles.sub}>Receive trip invoices in inbox</Text>
-          </View>
-          <Switch value={emailAlerts} onValueChange={setEmailAlerts} trackColor={{ false: "#CBD5E1", true: Colors.primary }} />
-        </View>
+        )}
       </View>
 
-      <Text style={styles.sectionTitle}>Privacy & Location</Text>
-      <View style={styles.card}>
-        <View style={styles.row}>
-          <View style={styles.info}>
-            <Text style={styles.title}>Live Location Sharing</Text>
-            <Text style={styles.sub}>Share coordinates during trips</Text>
-          </View>
-          <Switch value={locationTracking} onValueChange={setLocationTracking} trackColor={{ false: "#CBD5E1", true: Colors.green }} />
-        </View>
-      </View>
+      {consent?.policy_version && (
+        <Text style={styles.policyNote}>
+          You last agreed to policy version {consent.policy_version}
+          {consent.recorded_at
+            ? ` on ${new Date(consent.recorded_at).toLocaleDateString()}`
+            : ""}
+          . Current published version is {POLICY_VERSION} ({EFFECTIVE_DATE}).
+        </Text>
+      )}
 
       <Text style={styles.sectionTitle}>Legal</Text>
       <View style={styles.card}>
         <Pressable
-          onPress={() => Alert.alert("Terms of Service", "SyncroGo Community Carpool Agreement v2.1")}
+          onPress={() => router.push({ pathname: "/(user)/legal", params: { doc: "terms" } })}
           style={styles.menuRow}
         >
-          <Text style={styles.title}>Terms of Service</Text>
+          <Text style={styles.title}>Terms & Conditions</Text>
           <Text style={styles.chevron}>›</Text>
         </Pressable>
         <Pressable
-          onPress={() => Alert.alert("Privacy Policy", "SyncroGo Privacy Policy compliant with DPDP 2023")}
+          onPress={() => router.push({ pathname: "/(user)/legal", params: { doc: "privacy" } })}
           style={[styles.menuRow, styles.border]}
         >
           <Text style={styles.title}>Privacy Policy</Text>
+          <Text style={styles.chevron}>›</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => router.push({ pathname: "/(user)/legal", params: { doc: "cookies" } })}
+          style={[styles.menuRow, styles.border]}
+        >
+          <Text style={styles.title}>Cookie Policy</Text>
+          <Text style={styles.chevron}>›</Text>
+        </Pressable>
+        <Pressable
+          onPress={() =>
+            Alert.alert(
+              "Grievance",
+              `Write to ${ENTITY.grievanceEmail} with your name, registered email/mobile, description of the issue and requested resolution.`
+            )
+          }
+          style={[styles.menuRow, styles.border]}
+        >
+          <Text style={styles.title}>Grievance & Contact</Text>
           <Text style={styles.chevron}>›</Text>
         </Pressable>
       </View>
@@ -219,12 +286,44 @@ const styles = StyleSheet.create({
     borderColor: "#F1F5F9",
   },
   row: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 12 },
+  rowBorder: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#F8FAFC",
+  },
   menuRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 14 },
   border: { borderTopWidth: 1, borderTopColor: "#F8FAFC" },
   info: { flex: 1, paddingRight: 10 },
+  titleRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   title: { fontSize: 14, fontWeight: "700", color: Colors.text },
+  requiredBadge: {
+    fontSize: 8,
+    fontWeight: "800",
+    color: "#B45309",
+    backgroundColor: "#FEF3C7",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    overflow: "hidden",
+    letterSpacing: 0.5,
+  },
   sub: { fontSize: 12, color: Colors.textSecondary, marginTop: 2 },
   chevron: { fontSize: 18, color: "#94A3B8" },
+  loadingRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 14 },
+  loadingText: { fontSize: 13, color: Colors.textSecondary },
+  flashCard: {
+    backgroundColor: "#ECFDF5",
+    borderRadius: 14,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: "#A7F3D0",
+    marginTop: 8,
+  },
+  flashText: { fontSize: 12, color: "#065F46", fontWeight: "600" },
+  policyNote: { fontSize: 11, color: "#94A3B8", marginTop: 10, paddingHorizontal: 4 },
   dangerSectionTitle: { fontSize: 13, fontWeight: "800", color: "#DC2626", textTransform: "uppercase", marginBottom: 8, marginTop: 18 },
   dangerCard: {
     backgroundColor: "#FEF2F2",
