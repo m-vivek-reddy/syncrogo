@@ -12,6 +12,7 @@ import { router, useFocusEffect } from "expo-router";
 import api from "../../api/client";
 import { Colors } from "../../constants/colors";
 import { useAuthStore } from "../../store/auth";
+import BackButton from "../../components/BackButton";
 
 type Trip = {
   booking_id?: number;
@@ -122,10 +123,13 @@ export default function Trips() {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>{mode === "driver" ? "Offered Rides" : "My Trips"}</Text>
-        <Text style={styles.headerSubtitle}>
-          {mode === "driver" ? "Rides you published as a driver" : "Your active and past shared commutes"}
-        </Text>
+        <BackButton fallbackRoute="/(user)/home" style={{ marginRight: 12 }} />
+        <View style={{ flex: 1 }}>
+          <Text style={styles.headerTitle}>{mode === "driver" ? "Offered Rides" : "My Trips"}</Text>
+          <Text style={styles.headerSubtitle}>
+            {mode === "driver" ? "Rides you published as a driver" : "Your active and past shared commutes"}
+          </Text>
+        </View>
       </View>
 
       {items.map((trip) => {
@@ -257,7 +261,7 @@ export default function Trips() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#F8FAFC" },
   content: { padding: 16, paddingBottom: 40 },
-  header: { marginBottom: 16, marginTop: 4 },
+  header: { flexDirection: "row", alignItems: "center", marginBottom: 16, marginTop: 4 },
   headerTitle: { fontSize: 24, fontWeight: "900", color: Colors.text },
   headerSubtitle: { fontSize: 13, color: Colors.textSecondary, marginTop: 2 },
   card: {

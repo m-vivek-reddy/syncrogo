@@ -5,6 +5,7 @@ import * as DocumentPicker from "expo-document-picker";
 import api from "../../api/client";
 import { Colors } from "../../constants/colors";
 import ConsentNoticeModal from "../../components/ConsentNoticeModal";
+import BackButton from "../../components/BackButton";
 import { recordDocumentConsent } from "../../api/consent";
 import { CONSENT_COPY } from "../../legal/legalContent";
 
@@ -70,7 +71,10 @@ export default function DocumentsScreen() {
       onProceed={proceedUpload}
       onDismiss={() => setPendingUpload(null)}
     />
-    <View style={styles.header}><Pressable onPress={() => router.replace("/(user)/profile")} style={styles.backBtn}><Text style={styles.backText}>Back</Text></Pressable><Text style={styles.headerTitle}>Identity and Documents</Text></View>
+    <View style={styles.header}>
+      <BackButton fallbackRoute="/(user)/profile" style={{ marginRight: 12 }} />
+      <Text style={styles.headerTitle}>Identity and Documents</Text>
+    </View>
     <View style={styles.banner}><Text style={styles.bannerTitle}>Verified Community</Text><Text style={styles.bannerText}>Your documents are reviewed to keep rides safe and trusted.</Text></View>
     {sections.map((section) => <View key={section.title} style={styles.section}>
       <Text style={styles.sectionTitle}>{section.title}</Text>

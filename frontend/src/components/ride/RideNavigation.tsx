@@ -260,6 +260,51 @@ export default function RideNavigation({
     useState<string | null>(null);
 
   // ==========================================================
+  // GOOGLE MAPS DIRECTIONS
+  // ==========================================================
+
+  // While the passenger has not been picked up, navigate to the pickup
+  // point; afterwards navigate to the ride destination. Deep-linking into
+  // Google Maps gives real turn-by-turn voice navigation with live traffic,
+  // which an embedded Leaflet map cannot provide.
+  const rideStatus = booking?.status?.toLowerCase() ?? "";
+  const passengerPickedUp = [
+    "in_progress",
+    "onboard",
+    "ongoing",
+    "started",
+    "active",
+  ].some((s) => rideStatus.includes(s));
+
+  const navigationTarget = passengerPickedUp
+    ? destinationLocation
+    : pickupLocation ?? destinationLocation;
+
+  const openGoogleMapsDirections = () => {
+    if (!navigationTarget) return;
+
+    const target = `${navigationTarget.latitude},${navigationTarget.longitude}`;
+    const origin = driverLocation
+      ? `${driverLocation.latitude},${driverLocation.longitude}`
+      : undefined;
+
+    const params = new URLSearchParams({
+      // ddir = driving directions
+      dir_action: "navigate",
+      destination: target,
+      travelmode: "driving",
+    });
+    if (origin) params.set("saddr", origin);
+
+    const universalUrl = `https://www.google.com/maps/dir/?api=1&${params.toString()}`;
+
+    // Native app first (better voice navigation), web fallback for browsers.
+    window.location.href = universalUrl;
+  };
+
+  const hasGoogleTarget = Boolean(navigationTarget);
+
+  // ==========================================================
   // COMPLETE RIDE
   // ==========================================================
 
@@ -563,6 +608,22 @@ export default function RideNavigation({
       </div>
 
       {/* ======================================================
+          GOOGLE MAPS NAVIGATE BUTTON
+      ====================================================== */}
+
+      {hasGoogleTarget && (
+        <button
+          type="button"
+          aria-label="Navigate with Google Maps"
+          onClick={openGoogleMapsDirections}
+          className="absolute bottom-[305px] right-4 z-[1000] flex items-center gap-2 rounded-full bg-[#1a73e8] px-5 py-3 text-sm font-semibold text-white shadow-xl active:scale-[0.97]"
+        >
+          <span className="text-base">🧭</span>
+          Navigate
+        </button>
+      )}
+
+      {/* ======================================================
           GPS FOLLOW BUTTON
       ====================================================== */}
 
@@ -664,6 +725,19 @@ export default function RideNavigation({
               <div className="mt-3 rounded-xl bg-gray-50 px-3 py-2 text-center text-xs text-gray-500">
                 Updating road route...
               </div>
+            )}
+
+            {/* Google Maps turn-by-turn */}
+
+            {hasGoogleTarget && (
+              <button
+                type="button"
+                onClick={openGoogleMapsDirections}
+                className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl bg-[#1a73e8] py-4 font-semibold text-white active:scale-[0.98]"
+              >
+                <span className="text-lg">🧭</span>
+                Navigate with Google Maps
+              </button>
             )}
 
             {/* Error */}

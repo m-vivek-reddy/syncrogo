@@ -21,6 +21,19 @@ dist/
 
 # Generated diagnostics log
 mobile/doctor_log.txt
+
+# Build logs / diagnostics
+apk_build.log
+apk_build_err.log
+build_log_plain.txt
+logs_full.txt
+mobile/build_log.txt
+mobile/build_log_plain.txt
+mobile/logurl.txt
+mobile/raw_log.bin
+
+# Local env copy
+myenv/
 .pytest_cache/
 _tmp_*
 _diag_*

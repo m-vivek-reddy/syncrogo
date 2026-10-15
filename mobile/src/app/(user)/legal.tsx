@@ -8,6 +8,7 @@ import {
   ENTITY,
   type LegalDoc,
 } from "../../legal/legalContent";
+import BackButton from "../../components/BackButton";
 
 const DOCS: Record<string, LegalDoc> = {
   terms: TERMS,
@@ -23,9 +24,7 @@ export default function LegalScreen() {
     <View style={styles.page}>
       {/* Header */}
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn}>
-          <Text style={styles.backText}>‹</Text>
-        </Pressable>
+        <BackButton fallbackRoute="/(user)/home" style={{ marginRight: 12 }} />
         <Text style={styles.headerTitle}>{doc.eyebrow}</Text>
       </View>
 

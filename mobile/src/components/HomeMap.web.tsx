@@ -95,10 +95,7 @@ export default function HomeMapWeb() {
 
       map = L.map('map', { zoomControl: false, attributionControl: false, fadeAnimation: true, zoomAnimation: true }).setView([centerLat, centerLon], 15);
 
-      var primaryTiles = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { maxZoom: 19, subdomains: 'abcd' });
-      primaryTiles.on('tileerror', function() {
-        if (!map._hasOsm) { map._hasOsm = true; L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map); }
-      });
+      var primaryTiles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 });
       primaryTiles.addTo(map);
 
       var userIcon = L.divIcon({ className: 'custom-user-icon', html: '<div class="user-marker"><div class="user-pulse"></div><div class="user-core"></div></div>', iconSize: [24, 24], iconAnchor: [12, 12] });

@@ -2,14 +2,13 @@ import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-na
 import { router } from "expo-router";
 import { Colors } from "../../constants/colors";
 import { ENTITY } from "../../legal/legalContent";
+import BackButton from "../../components/BackButton";
 
 export default function GrievanceScreen() {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.header}>
-        <Pressable onPress={() => router.replace("/(user)/settings")} style={styles.backButton}>
-          <Text style={styles.backText}>Back</Text>
-        </Pressable>
+        <BackButton fallbackRoute="/(user)/settings" style={{ marginRight: 12 }} />
         <Text style={styles.title}>Privacy Grievance</Text>
       </View>
       <Text style={styles.body}>Grievance officer: {ENTITY.grievanceOfficer}</Text>

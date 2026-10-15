@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { StyleSheet, View, Text, Pressable } from "react-native";
-import MapView, { Marker, Polyline } from "react-native-maps";
 import { distanceToRouteMeters, fetchMultiPointRoute, type Coordinate } from "../services/routing";
 import { useSmoothedVehicle, VehicleBody } from "./NavigationVehicle";
+import { SyncroGoMap, type SyncroGoMapHandle, type SyncroGoMarker } from "./SyncroGoMap";
 
 export type DriverPassengerMarker = {
   booking_id?: number;
@@ -36,7 +36,7 @@ export default function DriverRideMap({
   vehicleType,
   height = 380,
 }: DriverRideMapProps) {
-  const mapRef = useRef<MapView | null>(null);
+  const mapRef = useRef<SyncroGoMapHandle | null>(null);
   const [baseRoute, setBaseRoute] = useState<Coordinate[]>([]);
   const [activeRoute, setActiveRoute] = useState<Coordinate[]>([]);
 
@@ -110,7 +110,7 @@ export default function DriverRideMap({
   }, [routeWaypoints]);
 
   useEffect(() => {
-    if (!mapRef.current) return;
+    if (rideStarted) return;
     const allCoords: Coordinate[] = [];
     if (validDriverStart) allCoords.push(validDriverStart);
     evaluatedPassengers.forEach(p => allCoords.push({ latitude: Number(p.latitude), longitude: Number(p.longitude) }));
@@ -120,159 +120,131 @@ export default function DriverRideMap({
     }
 
     if (allCoords.length > 0) {
-      setTimeout(() => {
-        mapRef.current?.fitToCoordinates(allCoords, {
-          edgePadding: { top: 60, right: 50, bottom: 60, left: 50 },
-          animated: true,
-        });
+      const t = setTimeout(() => {
+        mapRef.current?.fitBounds(allCoords, 60);
       }, 300);
+      return () => clearTimeout(t);
     }
-  }, [validDriverStart, validDriverDest, evaluatedPassengers, driverCurrentLocation]);
+  }, [rideStarted, validDriverStart, validDriverDest, evaluatedPassengers, driverCurrentLocation]);
 
-  const initialRegion = {
-    latitude: validDriverStart?.latitude || 17.385,
-    longitude: validDriverStart?.longitude || 78.4867,
-    latitudeDelta: 0.1,
-    longitudeDelta: 0.1,
-  };
+  const initialCenter = useMemo(() => {
+    if (validDriverStart) return validDriverStart;
+    if (driverCurrentLocation) return driverCurrentLocation;
+    return { latitude: 17.385, longitude: 78.4867 };
+  }, [validDriverStart, driverCurrentLocation]);
 
   // Smoothly transition to a 3D navigation camera when the ride starts.
   useEffect(() => {
-    if (!rideStarted || !mapRef.current) return;
+    if (!rideStarted) return;
     setFollowMode(true);
-    mapRef.current.animateCamera(
-      {
-        pitch: 50,
-        heading: smoothed.heading,
-        center: smoothed.position
-          ? { latitude: smoothed.position.latitude, longitude: smoothed.position.longitude }
-          : undefined,
-        zoom: 17,
-      },
-      { duration: 1500 }
-    );
     // Only on transition into navigation mode.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [rideStarted]);
 
   // Follow camera during navigation. Skipped while user is manually exploring.
   useEffect(() => {
     if (!rideStarted || !followMode || !mapRef.current) return;
-    if (!smoothed.position) return;
-    mapRef.current.animateCamera(
-      {
-        pitch: 50,
-        heading: smoothed.heading,
-        center: {
-          latitude: smoothed.position.latitude,
-          longitude: smoothed.position.longitude,
-        },
-        zoom: 17,
-      },
-      { duration: 600 }
+    const target = smoothed.position ?? driverCurrentLocation ?? validDriverStart;
+    if (!target || !Number.isFinite(target.latitude)) return;
+    mapRef.current.animateTo(
+      { latitude: target.latitude, longitude: target.longitude },
+      { nav: true, duration: 600 }
     );
-  }, [rideStarted, followMode, smoothed.position, smoothed.heading]);
+  }, [rideStarted, followMode, smoothed.position, driverCurrentLocation, validDriverStart]);
 
   const handleRecenter = () => {
     setFollowMode(true);
   };
 
+  const markers = useMemo<SyncroGoMarker[]>(() => {
+    const list: SyncroGoMarker[] = [];
+
+    if (validDriverStart) {
+      list.push({
+        id: "driver-start",
+        coordinate: validDriverStart,
+        children: (
+          <View style={[styles.pin, styles.startPin]}>
+            <Text style={styles.pinIcon}>📍</Text>
+          </View>
+        ),
+      });
+    }
+
+    evaluatedPassengers.forEach((p, idx) => {
+      const isCompleted = p.status === "COMPLETED";
+      const isPickedUp = p.status === "PICKED_UP";
+      const isOutside = p.isOutsideRoute;
+
+      let pinStyle = styles.passengerPin;
+      if (isCompleted) pinStyle = styles.completedPin;
+      else if (isPickedUp) pinStyle = styles.pickedPin;
+      else if (isOutside) pinStyle = styles.warnPin;
+
+      list.push({
+        id: `dp-${p.booking_id || idx}-${p.latitude}`,
+        coordinate: { latitude: Number(p.latitude), longitude: Number(p.longitude) },
+        children: (
+          <View style={[styles.pin, pinStyle]}>
+            <Text style={styles.pinIcon}>👤</Text>
+          </View>
+        ),
+      });
+    });
+
+    if (validDriverDest) {
+      list.push({
+        id: "driver-dest",
+        coordinate: validDriverDest,
+        children: (
+          <View style={[styles.pin, styles.destPin]}>
+            <Text style={styles.pinIcon}>🏁</Text>
+          </View>
+        ),
+      });
+    }
+
+    const markerLocation = driverCurrentLocation ?? (
+      rideStarted && validDriverStart
+        ? { latitude: validDriverStart.latitude, longitude: validDriverStart.longitude }
+        : null
+    );
+    if (markerLocation && Number.isFinite(markerLocation.latitude)) {
+      const pos = rideStarted ? (smoothed.position ?? markerLocation) : markerLocation;
+      list.push({
+        id: "driver-vehicle",
+        coordinate: pos,
+        children: rideStarted ? (
+          <View style={styles.navVehicleWrap}>
+            <VehicleBody vehicleType={vehicleType} />
+          </View>
+        ) : (
+          <View style={styles.carBadge}>
+            <Text style={{ fontSize: 18 }}>🚗</Text>
+          </View>
+        ),
+      });
+    }
+
+    return list;
+  }, [validDriverStart, validDriverDest, evaluatedPassengers, driverCurrentLocation, rideStarted, smoothed.position, vehicleType]);
+
   return (
     <View style={[styles.container, { height }]}>
-      <MapView
+      <SyncroGoMap
         ref={mapRef}
-
-        style={styles.map}
-        initialRegion={initialRegion}
-        showsUserLocation={!rideStarted}
-        showsMyLocationButton={false}
-        onPanDrag={() => {
+        initialCenter={initialCenter}
+        initialZoom={13}
+        routeCoordinates={activeRoute}
+        routeColor="#16A34A"
+        markers={markers}
+        navigationMode={rideStarted}
+        onPanStart={() => {
           // User is manually exploring: stop auto-following the vehicle.
           if (rideStarted && followMode) setFollowMode(false);
         }}
-      >
-        {validDriverStart && (
-          <Marker
-            coordinate={validDriverStart}
-          >
-            <View style={[styles.pin, styles.startPin]}>
-              <Text style={styles.pinIcon}>📍</Text>
-            </View>
-          </Marker>
-        )}
-
-        {evaluatedPassengers.map((p, idx) => {
-          const isCompleted = p.status === "COMPLETED";
-          const isPickedUp = p.status === "PICKED_UP";
-          const isOutside = p.isOutsideRoute;
-
-          let pinStyle = styles.passengerPin;
-          if (isCompleted) pinStyle = styles.completedPin;
-          else if (isPickedUp) pinStyle = styles.pickedPin;
-          else if (isOutside) pinStyle = styles.warnPin;
-
-          return (
-            <Marker
-              key={`dp-${p.booking_id || idx}-${p.latitude}`}
-              coordinate={{ latitude: Number(p.latitude), longitude: Number(p.longitude) }}
-              title={p.name || `Passenger ${idx + 1}`}
-              description={isOutside ? "⚠️ Pickup >300m off route" : (p.pickup_location || "Passenger Pickup")}
-            >
-              <View style={[styles.pin, pinStyle]}>
-                <Text style={styles.pinIcon}>👤</Text>
-              </View>
-            </Marker>
-          );
-        })}
-
-        {validDriverDest && (
-          <Marker
-            coordinate={validDriverDest}
-          >
-            <View style={[styles.pin, styles.destPin]}>
-              <Text style={styles.pinIcon}>🏁</Text>
-            </View>
-          </Marker>
-        )}
-
-        {(() => {
-          const markerLocation = driverCurrentLocation ?? (
-            rideStarted && validDriverStart
-              ? { latitude: validDriverStart.latitude, longitude: validDriverStart.longitude }
-              : null
-          );
-          if (!markerLocation || !Number.isFinite(markerLocation.latitude)) return null;
-          const pos = rideStarted ? (smoothed.position ?? markerLocation) : markerLocation;
-          return (
-            <Marker
-              coordinate={pos}
-              anchor={{ x: 0.5, y: 0.5 }}
-              rotation={rideStarted ? smoothed.heading : 0}
-              flat={rideStarted}
-            >
-              {rideStarted ? (
-                <View style={styles.navVehicleWrap}>
-                  <VehicleBody vehicleType={vehicleType} />
-                </View>
-              ) : (
-                <View style={styles.carBadge}>
-                  <Text style={{ fontSize: 18 }}>🚗</Text>
-                </View>
-              )}
-            </Marker>
-          );
-        })()}
-
-        {activeRoute.length >= 2 && (
-          <Polyline
-            coordinates={activeRoute}
-            strokeColor="#16A34A"
-            strokeWidth={5}
-            lineCap="round"
-            lineJoin="round"
-          />
-        )}
-      </MapView>
+        height={height}
+      />
 
       {/* Re-center / follow-driver button (only in navigation mode) */}
       {rideStarted && !followMode && (
@@ -306,7 +278,6 @@ const styles = StyleSheet.create({
   },
   recenterIcon: { fontSize: 20 },
   navVehicleWrap: { alignItems: "center", justifyContent: "center" },
-  map: { ...StyleSheet.absoluteFillObject },
   pin: {
     width: 34,
     height: 34,

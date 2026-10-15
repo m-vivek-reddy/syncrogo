@@ -5,6 +5,7 @@ import { WebView } from "react-native-webview";
 import { API_BASE_URL } from "../api/client";
 import { Colors } from "../constants/colors";
 import { useAuthStore } from "../store/auth";
+import BackButton from "../components/BackButton";
 
 export default function DocumentViewerScreen() {
   const { document_id: documentIdParam } = useLocalSearchParams<{ document_id?: string }>();
@@ -27,9 +28,7 @@ export default function DocumentViewerScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backButton}>
-          <Text style={styles.backText}>Back</Text>
-        </Pressable>
+        <BackButton fallbackRoute="/(user)/documents" style={{ marginRight: 12 }} />
         <Text style={styles.title}>Driver document</Text>
       </View>
       {loadError ? (

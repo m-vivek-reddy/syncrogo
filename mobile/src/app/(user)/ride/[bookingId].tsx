@@ -13,6 +13,7 @@ import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import * as Location from "expo-location";
 import api from "../../../api/client";
 import { Colors } from "../../../constants/colors";
+import BackButton from "../../../components/BackButton";
 import PassengerRideMap, {
   type PassengerMarker,
 } from "../../../components/PassengerRideMap";
@@ -261,9 +262,7 @@ export default function RideNavigation() {
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       {/* Header Bar */}
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn}>
-          <Text style={styles.backText}>‹</Text>
-        </Pressable>
+        <BackButton fallbackRoute="/(user)/trips" style={{ marginRight: 12 }} />
         <View style={{ flex: 1 }}>
           <Text style={styles.headerTitle}>
             {isStarted ? "Live Trip Tracking" : "Carpool Route Map"}
@@ -286,18 +285,38 @@ export default function RideNavigation() {
         passengers={data?.passengers || []}
         rideStatus={data?.status}
         vehicleType={data?.driver_info?.vehicle}
-        height={360}
+        height={isStarted ? 480 : 360}
       />
       {isStarted && data?.ride_id && (
-        <Pressable
-          onPress={() => router.push({
-            pathname: "/(user)/emergency" as any,
-            params: { ride_id: String(data.ride_id) },
-          })}
-          style={{ backgroundColor: "#B91C1C", padding: 14, borderRadius: 12, alignItems: "center", marginVertical: 12 }}
-        >
-          <Text style={{ color: Colors.white, fontWeight: "800" }}>Emergency SOS</Text>
-        </Pressable>
+        <View style={{ gap: 10, marginVertical: 12 }}>
+          {/* Navigate with Google Maps - passenger follows along */}
+          {data?.driver_destination && (
+            <Pressable
+              onPress={() => {
+                const params = new URLSearchParams({
+                  dir_action: "navigate",
+                  destination: `${data.driver_destination!.latitude},${data.driver_destination!.longitude}`,
+                  travelmode: "driving",
+                });
+                Linking.openURL(`https://www.google.com/maps/dir/?api=1&${params.toString()}`).catch(() =>
+                  Alert.alert("Error", "Could not open Google Maps. Is it installed?")
+                );
+              }}
+              style={{ backgroundColor: "#1A73E8", padding: 14, borderRadius: 12, alignItems: "center" }}
+            >
+              <Text style={{ color: Colors.white, fontWeight: "800", fontSize: 15 }}>🧭 Navigate with Google Maps</Text>
+            </Pressable>
+          )}
+          <Pressable
+            onPress={() => router.push({
+              pathname: "/(user)/emergency" as any,
+              params: { ride_id: String(data.ride_id) },
+            })}
+            style={{ backgroundColor: "#B91C1C", padding: 14, borderRadius: 12, alignItems: "center" }}
+          >
+            <Text style={{ color: Colors.white, fontWeight: "800" }}>Emergency SOS</Text>
+          </Pressable>
+        </View>
       )}
 
       {/* Ride Status Banner */}

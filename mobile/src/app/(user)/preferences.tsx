@@ -10,6 +10,7 @@ import {
 import { useState } from "react";
 import { router } from "expo-router";
 import { Colors } from "../../constants/colors";
+import BackButton from "../../components/BackButton";
 
 export default function PreferencesScreen() {
   const [ac, setAc] = useState(true);
@@ -25,9 +26,7 @@ export default function PreferencesScreen() {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.header}>
-        <Pressable onPress={() => router.replace("/(user)/profile")} style={styles.backBtn}>
-          <Text style={styles.backText}>‹</Text>
-        </Pressable>
+        <BackButton fallbackRoute="/(user)/profile" style={{ marginRight: 12 }} />
         <Text style={styles.headerTitle}>Ride Preferences</Text>
       </View>
 

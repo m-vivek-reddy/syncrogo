@@ -15,6 +15,7 @@ import * as Location from "expo-location";
 import api from "../../api/client";
 import { Colors } from "../../constants/colors";
 import { buildSosPayload } from "../../services/sos";
+import BackButton from "../../components/BackButton";
 
 export default function EmergencyScreen() {
   const { ride_id: rideIdParam } = useLocalSearchParams<{ ride_id?: string }>();
@@ -121,9 +122,7 @@ export default function EmergencyScreen() {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.header}>
-        <Pressable onPress={() => router.replace("/(user)/profile")} style={styles.backBtn}>
-          <Text style={styles.backText}>‹</Text>
-        </Pressable>
+        <BackButton fallbackRoute="/(user)/home" style={{ marginRight: 12 }} />
         <Text style={styles.headerTitle}>Emergency & Safety</Text>
       </View>
 

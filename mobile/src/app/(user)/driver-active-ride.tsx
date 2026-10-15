@@ -16,6 +16,7 @@ import * as Location from "expo-location";
 import api from "../../api/client";
 import { Colors } from "../../constants/colors";
 import { useAuthStore } from "../../store/auth";
+import BackButton from "../../components/BackButton";
 import DriverRideMap, {
   type DriverPassengerMarker,
 } from "../../components/DriverRideMap";
@@ -267,6 +268,57 @@ export default function DriverActiveRideScreen() {
     }
   };
 
+  /*
+   * Open Google Maps turn-by-turn navigation.
+   *
+   * While at least one passenger still needs pickup, target that passenger's
+   * pickup point; once everyone on board (PICKED_UP), target the ride
+   * destination. Universal link opens the native Google Maps app on
+   * Android/iOS and maps.google.com in a web browser.
+   */
+  const handleNavigate = () => {
+    const current = dataRef.current;
+    if (!current) return;
+
+    const pendingPassenger = current.passengers?.find(
+      p => (p.status === "ACCEPTED" || p.status === "CONFIRMED" || p.status === "STARTED") &&
+        Number.isFinite(p.pickup_lat) && Number.isFinite(p.pickup_lon)
+    );
+
+    const allPickedUp =
+      !pendingPassenger &&
+      current.passengers?.some(p => p.status === "PICKED_UP");
+
+    const targetLat = pendingPassenger
+      ? pendingPassenger.pickup_lat
+      : current.dropoff_lat;
+    const targetLon = pendingPassenger
+      ? pendingPassenger.pickup_lon
+      : current.dropoff_lon;
+
+    if (!Number.isFinite(targetLat) || !Number.isFinite(targetLon)) {
+      Alert.alert("Notice", "No navigation target available for this ride.");
+      return;
+    }
+
+    const params = new URLSearchParams({
+      dir_action: "navigate",
+      destination: `${targetLat},${targetLon}`,
+      travelmode: "driving",
+    });
+    if (currentGps) {
+      params.set("saddr", `${currentGps.latitude},${currentGps.longitude}`);
+    }
+    if (allPickedUp) {
+      params.set("dirflg", "d");
+    }
+
+    const url = `https://www.google.com/maps/dir/?api=1&${params.toString()}`;
+    Linking.openURL(url).catch(() =>
+      Alert.alert("Error", "Could not open Google Maps. Is it installed?")
+    );
+  };
+
   const handleChat = (passengerName: string, bookingId: number, passengerId: number, phone?: string) => {
     const current = dataRef.current;
     if (!current) return;
@@ -427,7 +479,8 @@ export default function DriverActiveRideScreen() {
 
   const isRideStarted = data?.status === "started" || data?.status === "STARTED";
   const isRideCompleted = data?.status === "completed" || data?.status === "COMPLETED";
-  const mapHeight = isRideStarted ? Math.max(520, windowHeight - 190) : 380;
+  // Near-full-screen map while navigating; compact map before start.
+  const mapHeight = isRideStarted ? Math.max(560, windowHeight - 150) : 380;
 
   const mappedPassengers: DriverPassengerMarker[] = (data?.passengers || []).map(p => ({
     booking_id: p.booking_id,
@@ -444,9 +497,7 @@ export default function DriverActiveRideScreen() {
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       {/* Header */}
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn}>
-          <Text style={styles.backText}>{`\u2039`}</Text>
-        </Pressable>
+        <BackButton fallbackRoute="/(user)/home" style={{ marginRight: 12 }} />
         <View style={{ flex: 1 }}>
           <Text style={styles.headerTitle}>Driver Active Ride</Text>
           <Text style={styles.headerSub}>Ride #{data?.id}</Text>
@@ -467,15 +518,23 @@ export default function DriverActiveRideScreen() {
         height={mapHeight}
       />
       {isRideStarted && data && (
-        <Pressable
-          onPress={() => router.push({
-            pathname: "/(user)/emergency" as any,
-            params: { ride_id: String(data.id) },
-          })}
-          style={{ backgroundColor: "#B91C1C", padding: 14, borderRadius: 12, alignItems: "center", marginVertical: 12 }}
-        >
-          <Text style={{ color: Colors.white, fontWeight: "800" }}>Emergency SOS</Text>
-        </Pressable>
+        <View style={{ gap: 10, marginVertical: 12 }}>
+          <Pressable
+            onPress={handleNavigate}
+            style={{ backgroundColor: "#1A73E8", padding: 14, borderRadius: 12, alignItems: "center", flexDirection: "row", justifyContent: "center", gap: 8 }}
+          >
+            <Text style={{ color: Colors.white, fontWeight: "800", fontSize: 15 }}>{`\ud83e\uded7 Navigate with Google Maps`}</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => router.push({
+              pathname: "/(user)/emergency" as any,
+              params: { ride_id: String(data.id) },
+            })}
+            style={{ backgroundColor: "#B91C1C", padding: 14, borderRadius: 12, alignItems: "center" }}
+          >
+            <Text style={{ color: Colors.white, fontWeight: "800" }}>Emergency SOS</Text>
+          </Pressable>
+        </View>
       )}
 
       {/* Manual GPS Refresh Button */}

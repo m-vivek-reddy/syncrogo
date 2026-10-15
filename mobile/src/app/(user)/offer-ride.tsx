@@ -16,6 +16,7 @@ import * as Location from "expo-location";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import api from "../../api/client";
 import { Colors } from "../../constants/colors";
+import BackButton from "../../components/BackButton";
 import LocationPickerMap from "../../components/LocationPickerMap";
 import {
   reverseGeocode,
@@ -64,6 +65,7 @@ export default function OfferRideScreen() {
    * "scheduled" lets the driver pick a future departure date & time.
    */
   const [scheduleMode, setScheduleMode] = useState<"now" | "scheduled">("now");
+  const [datePickerMode, setDatePickerMode] = useState<"date" | "time">("date");
   const minDepartureDate = useMemo(() => new Date(), []);
   const defaultDepartureDate = useMemo(() => {
     const d = new Date();
@@ -632,13 +634,7 @@ export default function OfferRideScreen() {
       >
         {/* Header */}
         <View style={styles.header}>
-          <Pressable
-            onPress={() => router.back()}
-            style={styles.backButton}
-            accessibilityLabel="Go back"
-          >
-            <Text style={styles.backText}>‹</Text>
-          </Pressable>
+          <BackButton fallbackRoute="/(user)/home" />
 
           <View>
             <Text style={styles.title}>Offer a Ride</Text>
@@ -1011,6 +1007,7 @@ export default function OfferRideScreen() {
             <Pressable
               onPress={() => {
                 setScheduleMode("scheduled");
+                setDatePickerMode("date");
                 setShowDatePicker(true);
               }}
               style={[
@@ -1032,12 +1029,34 @@ export default function OfferRideScreen() {
 
           {scheduleMode === "scheduled" && (
             <View style={styles.scheduleSummaryBox}>
-              <Pressable onPress={() => setShowDatePicker(true)}>
-                <Text style={styles.scheduleValueText}>
-                  🕒 {formatDepartureLabel(departureDate)}
-                </Text>
-                <Text style={styles.scheduleHint}>Tap to change date & time</Text>
-              </Pressable>
+              <View style={styles.schedulePillRow}>
+                <Pressable
+                  onPress={() => {
+                    setDatePickerMode("date");
+                    setShowDatePicker(true);
+                  }}
+                  style={styles.schedulePill}
+                >
+                  <Text style={styles.schedulePillLabel}>DEPARTURE DATE</Text>
+                  <Text style={styles.schedulePillValue}>
+                    📅 {departureDate.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" })}
+                  </Text>
+                </Pressable>
+
+                <Pressable
+                  onPress={() => {
+                    setDatePickerMode("time");
+                    setShowDatePicker(true);
+                  }}
+                  style={styles.schedulePill}
+                >
+                  <Text style={styles.schedulePillLabel}>DEPARTURE TIME</Text>
+                  <Text style={styles.schedulePillValue}>
+                    🕒 {departureDate.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", hour12: true })}
+                  </Text>
+                </Pressable>
+              </View>
+              <Text style={styles.scheduleHint}>Tap date or time to modify</Text>
             </View>
           )}
         </View>
@@ -1045,27 +1064,36 @@ export default function OfferRideScreen() {
         {showDatePicker && (
           <View style={[styles.card, styles.datePickerCard]}>
             <View style={styles.datePickerHeaderRow}>
-              <Text style={styles.sectionTitle}>Pick Departure Date & Time</Text>
+              <Text style={styles.sectionTitle}>
+                Pick Departure {datePickerMode === "date" ? "Date" : "Time"}
+              </Text>
               <Pressable onPress={() => setShowDatePicker(false)} style={styles.clearBtn}>
                 <Text style={styles.clearBtnText}>✕</Text>
               </Pressable>
             </View>
             <DateTimePicker
               value={departureDate}
-              mode="datetime"
+              mode={Platform.OS === "ios" ? "datetime" : datePickerMode}
               is24Hour={false}
               minimumDate={minDepartureDate}
               onChange={(event, selected) => {
-                if (Platform.OS === "android") {
-                  // Android fires once per pick; dismiss on cancel/neutral.
-                  if (event.type !== "set") {
-                    setShowDatePicker(false);
-                    return;
+                setShowDatePicker(false);
+                if (event.type === "set" && selected) {
+                  if (Platform.OS === "android" && datePickerMode === "date") {
+                    const updated = new Date(departureDate);
+                    updated.setFullYear(selected.getFullYear(), selected.getMonth(), selected.getDate());
+                    setDepartureDate(updated);
+                    setTimeout(() => {
+                      setDatePickerMode("time");
+                      setShowDatePicker(true);
+                    }, 150);
+                  } else if (Platform.OS === "android" && datePickerMode === "time") {
+                    const updated = new Date(departureDate);
+                    updated.setHours(selected.getHours(), selected.getMinutes());
+                    setDepartureDate(updated);
+                  } else {
+                    setDepartureDate(selected);
                   }
-                  setShowDatePicker(false);
-                }
-                if (selected) {
-                  setDepartureDate(selected);
                 }
               }}
             />
@@ -1580,20 +1608,40 @@ const styles = StyleSheet.create({
     backgroundColor: "#EFF6FF",
     borderWidth: 1,
     borderColor: "#BFDBFE",
-    borderRadius: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+    borderRadius: 14,
+    padding: 12,
   },
-  scheduleValueText: {
-    fontSize: 13,
+  schedulePillRow: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  schedulePill: {
+    flex: 1,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: "#DBEAFE",
+  },
+  schedulePillLabel: {
+    fontSize: 9,
     fontWeight: "800",
-    color: "#1D4ED8",
+    color: "#64748B",
+    marginBottom: 2,
+    letterSpacing: 0.5,
+  },
+  schedulePillValue: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#1E40AF",
   },
   scheduleHint: {
-    marginTop: 2,
+    marginTop: 6,
     fontSize: 10,
     fontWeight: "600",
     color: "#64748B",
+    textAlign: "center",
   },
   datePickerCard: {
     paddingVertical: 8,

@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { StyleSheet, View, Text, Pressable } from "react-native";
-import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from "react-native-maps";
 import { fetchMultiPointRoute, type Coordinate } from "../services/routing";
 import { useSmoothedVehicle, VehicleBody } from "./NavigationVehicle";
+import { SyncroGoMap, type SyncroGoMapHandle, type SyncroGoMarker } from "./SyncroGoMap";
 
 export type PassengerMarker = {
   booking_id?: number;
@@ -35,7 +35,7 @@ export default function PassengerRideMap({
   vehicleType,
   height = 360,
 }: PassengerRideMapProps) {
-  const mapRef = useRef<MapView | null>(null);
+  const mapRef = useRef<SyncroGoMapHandle | null>(null);
   const [routeCoords, setRouteCoordinates] = useState<Coordinate[]>([]);
 
   // 3D navigation mode only when the ride is actually STARTED on the backend.
@@ -78,141 +78,118 @@ export default function PassengerRideMap({
       allCoords.push(driverCurrentLocation);
     }
     if (allCoords.length > 0) {
-      setTimeout(() => {
-        mapRef.current?.fitToCoordinates(allCoords, {
-          edgePadding: { top: 60, right: 50, bottom: 60, left: 50 },
-          animated: true,
-        });
+      const t = setTimeout(() => {
+        mapRef.current?.fitBounds(allCoords, 60);
       }, 300);
+      return () => clearTimeout(t);
     }
   }, [waypoints, driverCurrentLocation]);
 
-  const initialRegion = {
-    latitude: validDriverStart?.latitude || 17.385,
-    longitude: validDriverStart?.longitude || 78.4867,
-    latitudeDelta: 0.1,
-    longitudeDelta: 0.1,
-  };
+  const initialCenter = useMemo(() => {
+    if (validDriverStart) return validDriverStart;
+    if (driverCurrentLocation) return driverCurrentLocation;
+    return { latitude: 17.385, longitude: 78.4867 };
+  }, [validDriverStart, driverCurrentLocation]);
 
   // Smoothly transition to a 3D navigation camera when the ride starts.
   useEffect(() => {
-    if (!rideStarted || !mapRef.current) return;
+    if (!rideStarted) return;
     setFollowMode(true);
-    mapRef.current.animateCamera(
-      {
-        pitch: 50,
-        heading: smoothed.heading,
-        center: smoothed.position
-          ? { latitude: smoothed.position.latitude, longitude: smoothed.position.longitude }
-          : undefined,
-        zoom: 17,
-      },
-      { duration: 1500 }
-    );
     // Only on transition into navigation mode.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [rideStarted]);
 
   // Follow camera during navigation. Skipped while user is manually exploring.
   useEffect(() => {
     if (!rideStarted || !followMode || !mapRef.current) return;
-    if (!smoothed.position) return;
-    mapRef.current.animateCamera(
-      {
-        pitch: 50,
-        heading: smoothed.heading,
-        center: {
-          latitude: smoothed.position.latitude,
-          longitude: smoothed.position.longitude,
-        },
-        zoom: 17,
-      },
-      { duration: 600 }
+    const target = smoothed.position ?? driverCurrentLocation ?? validDriverStart;
+    if (!target || !Number.isFinite(target.latitude)) return;
+    mapRef.current.animateTo(
+      { latitude: target.latitude, longitude: target.longitude },
+      { nav: true, duration: 600 }
     );
-  }, [rideStarted, followMode, smoothed.position, smoothed.heading]);
+  }, [rideStarted, followMode, smoothed.position, driverCurrentLocation, validDriverStart]);
 
   const handleRecenter = () => {
     setFollowMode(true);
   };
 
+  const markers = useMemo<SyncroGoMarker[]>(() => {
+    const list: SyncroGoMarker[] = [];
+
+    if (validDriverStart) {
+      list.push({
+        id: "driver-start",
+        coordinate: validDriverStart,
+        children: (
+          <View style={[styles.badge, styles.startBadge]}>
+            <Text style={styles.badgeText}>🚀 Driver Start</Text>
+          </View>
+        ),
+      });
+    }
+
+    validPassengers.forEach((p, idx) => {
+      list.push({
+        id: `p-${p.booking_id || idx}-${p.latitude}`,
+        coordinate: { latitude: Number(p.latitude), longitude: Number(p.longitude) },
+        children: (
+          <View style={[styles.badge, p.is_current_user ? styles.myBadge : styles.passengerBadge]}>
+            <Text style={styles.badgeText}>
+              {p.is_current_user ? "📍 You (Pickup)" : (p.name || `Passenger ${idx + 1}`)}
+            </Text>
+          </View>
+        ),
+      });
+    });
+
+    if (validDriverDest) {
+      list.push({
+        id: "driver-dest",
+        coordinate: validDriverDest,
+        children: (
+          <View style={[styles.badge, styles.destBadge]}>
+            <Text style={styles.badgeText}>🏁 Driver Destination</Text>
+          </View>
+        ),
+      });
+    }
+
+    if (driverCurrentLocation && Number.isFinite(driverCurrentLocation.latitude)) {
+      const pos = rideStarted ? (smoothed.position ?? driverCurrentLocation) : driverCurrentLocation;
+      list.push({
+        id: "driver-vehicle",
+        coordinate: pos,
+        children: rideStarted ? (
+          <View style={styles.navVehicleWrap}>
+            <VehicleBody vehicleType={vehicleType} />
+          </View>
+        ) : (
+          <View style={styles.carBadge}>
+            <Text style={{ fontSize: 20 }}>🚗</Text>
+          </View>
+        ),
+      });
+    }
+
+    return list;
+  }, [validDriverStart, validDriverDest, validPassengers, driverCurrentLocation, rideStarted, smoothed.position, vehicleType]);
+
   return (
     <View style={[styles.container, { height }]}>
-      <MapView
+      <SyncroGoMap
         ref={mapRef}
-        provider={PROVIDER_GOOGLE}
-        style={styles.map}
-        initialRegion={initialRegion}
-        showsUserLocation={!rideStarted}
-        showsMyLocationButton={false}
-        onPanDrag={() => {
+        initialCenter={initialCenter}
+        initialZoom={13}
+        routeCoordinates={routeCoords}
+        routeColor="#2563EB"
+        markers={markers}
+        navigationMode={rideStarted}
+        onPanStart={() => {
           if (rideStarted && followMode) setFollowMode(false);
         }}
-      >
-        {validDriverStart && (
-          <Marker coordinate={validDriverStart} title="Driver Pickup" description="Ride Start Point">
-            <View style={[styles.badge, styles.startBadge]}>
-              <Text style={styles.badgeText}>🚀 Driver Start</Text>
-            </View>
-          </Marker>
-        )}
-
-        {validPassengers.map((p, idx) => (
-          <Marker
-            key={`p-${p.booking_id || idx}-${p.latitude}`}
-            coordinate={{ latitude: Number(p.latitude), longitude: Number(p.longitude) }}
-            title={p.is_current_user ? "Your Pickup" : (p.name || `Passenger ${idx + 1}`)}
-            description={p.pickup_location || "Passenger Pickup"}
-          >
-            <View style={[styles.badge, p.is_current_user ? styles.myBadge : styles.passengerBadge]}>
-              <Text style={styles.badgeText}>
-                {p.is_current_user ? "📍 You (Pickup)" : (p.name || `Passenger ${idx + 1}`)}
-              </Text>
-            </View>
-          </Marker>
-        ))}
-
-        {validDriverDest && (
-          <Marker coordinate={validDriverDest} title="Driver Destination" description="Ride End Point">
-            <View style={[styles.badge, styles.destBadge]}>
-              <Text style={styles.badgeText}>🏁 Driver Destination</Text>
-            </View>
-          </Marker>
-        )}
-
-        {(() => {
-          if (!driverCurrentLocation || !Number.isFinite(driverCurrentLocation.latitude)) return null;
-          const pos = rideStarted ? (smoothed.position ?? driverCurrentLocation) : driverCurrentLocation;
-          return (
-            <Marker
-              coordinate={pos}
-              title="Driver Current Location"
-              anchor={{ x: 0.5, y: 0.5 }}
-              rotation={rideStarted ? smoothed.heading : 0}
-              flat={rideStarted}
-            >
-              {rideStarted ? (
-                <View style={styles.navVehicleWrap}>
-                  <VehicleBody vehicleType={vehicleType} />
-                </View>
-              ) : (
-                <View style={styles.carBadge}>
-                  <Text style={{ fontSize: 20 }}>🚗</Text>
-                </View>
-              )}
-            </Marker>
-          );
-        })()}
-
-        {routeCoords.length >= 2 && (
-          <Polyline
-            coordinates={routeCoords}
-            strokeColor="#2563EB"
-            strokeWidth={5}
-            lineCap="round"
-            lineJoin="round"
-          />
-        )}
-      </MapView>
+        height={height}
+      />
 
       {/* Re-center / follow-driver button (only in navigation mode) */}
       {rideStarted && !followMode && (
@@ -246,7 +223,6 @@ const styles = StyleSheet.create({
   },
   recenterIcon: { fontSize: 20 },
   navVehicleWrap: { alignItems: "center", justifyContent: "center" },
-  map: { ...StyleSheet.absoluteFillObject },
   badge: { paddingHorizontal: 9, paddingVertical: 4, borderRadius: 12, elevation: 3, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 3 },
   startBadge: { backgroundColor: "#2563EB" },
   destBadge: { backgroundColor: "#DC2626" },

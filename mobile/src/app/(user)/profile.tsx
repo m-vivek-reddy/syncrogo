@@ -16,6 +16,8 @@ import { Ionicons } from "@expo/vector-icons";
 import api, { API_BASE_URL } from "../../api/client";
 import { Colors } from "../../constants/colors";
 import { useAuthStore } from "../../store/auth";
+import { useAuth } from "../../auth/AuthContext";
+import { clearHistory } from "../../store/navigationHistory";
 import { getDriverDocumentReadiness } from "../../services/driverVerification";
 
 const resolvePhotoUrl = (url?: string) => {
@@ -32,6 +34,7 @@ const resolvePhotoUrl = (url?: string) => {
 
 export default function Profile() {
   const { user, mode, setMode, logout, setUser } = useAuthStore();
+  const { logout: authLogout } = useAuth();
   const [profile, setProfile] = useState(user);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [documents, setDocuments] = useState<
@@ -80,7 +83,13 @@ export default function Profile() {
         text: "Sign Out",
         style: "destructive",
         onPress: async () => {
-          await logout();
+          try {
+            await authLogout();
+          } catch { }
+          try {
+            await logout();
+          } catch { }
+          clearHistory();
           router.replace("/(auth)/login");
         },
       },

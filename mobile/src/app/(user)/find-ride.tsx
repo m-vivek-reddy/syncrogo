@@ -16,6 +16,7 @@ import { router } from "expo-router";
 import * as Location from "expo-location";
 import api from "../../api/client";
 import { Colors } from "../../constants/colors";
+import BackButton from "../../components/BackButton";
 import LocationPickerMap from "../../components/LocationPickerMap";
 import {
   reverseGeocode,
@@ -423,9 +424,7 @@ export default function FindRide() {
         onDismiss={() => setShowLocationConsent(false)}
       />
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn}>
-          <Text style={styles.backText}>‹</Text>
-        </Pressable>
+        <BackButton fallbackRoute="/(user)/home" style={{ marginRight: 12 }} />
         <Text style={styles.headerTitle}>Find a Ride</Text>
       </View>
 

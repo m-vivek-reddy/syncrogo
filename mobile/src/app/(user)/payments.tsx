@@ -10,6 +10,7 @@ import { useCallback, useState } from "react";
 import { router, useFocusEffect } from "expo-router";
 import { Colors } from "../../constants/colors";
 import api from "../../api/client";
+import BackButton from "../../components/BackButton";
 
 type PaymentMethod = {
   id: number;
@@ -62,9 +63,7 @@ export default function PaymentsScreen() {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.header}>
-        <Pressable onPress={() => router.replace("/(user)/profile")} style={styles.backBtn}>
-          <Text style={styles.backText}>‹</Text>
-        </Pressable>
+        <BackButton fallbackRoute="/(user)/home" style={{ marginRight: 12 }} />
         <Text style={styles.headerTitle}>Payment Methods</Text>
       </View>
 

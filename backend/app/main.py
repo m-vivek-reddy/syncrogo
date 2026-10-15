@@ -75,6 +75,7 @@ from app.routes import bookings
 from app.routes import cash_fees
 from app.routes import privacy
 from app.routes import drivers
+from app.routes import analytics
 
 # API routers
 from app.api import pricing
@@ -85,6 +86,32 @@ from app.api import pricing
 # ---------------------------------------------------------
 
 from contextlib import asynccontextmanager
+
+# ---------------------------------------------------------
+# Error monitoring (Sentry) — optional, enabled when SENTRY_DSN is set
+# ---------------------------------------------------------
+
+SENTRY_ENABLED = False
+try:
+    import sentry_sdk  # type: ignore[import-not-found]
+    from sentry_sdk.integrations.fastapi import FastApiIntegration  # type: ignore[import-not-found]
+    from sentry_sdk.integrations.starlette import StarletteIntegration  # type: ignore[import-not-found]
+
+    _SENTRY_DSN = os.getenv("SENTRY_DSN", "").strip()
+    if _SENTRY_DSN:
+        sentry_sdk.init(
+            dsn=_SENTRY_DSN,
+            environment=os.getenv("SENTRY_ENV", "production"),
+            traces_sample_rate=float(os.getenv("SENTRY_TRACES_RATE", "0.1")),
+            send_default_pii=False,  # never attach user PII to error events
+            integrations=[
+                StarletteIntegration(),
+                FastApiIntegration(),
+            ],
+        )
+        SENTRY_ENABLED = True
+except ImportError:
+    pass  # sentry-sdk not installed — API runs fine without it
 
 
 def _init_db(retries: int = 5, delay: float = 3.0) -> bool:
@@ -165,11 +192,13 @@ app.add_middleware(
         "http://127.0.0.1:8000",
         "https://hj4cqztk-5173.inc1.devtunnels.ms",
         "https://hj4cqztk-5174.inc1.devtunnels.ms",
+        "https://hj4cqztk-8081.inc1.devtunnels.ms",
+        "https://hj4cqztk-8082.inc1.devtunnels.ms",
+        "https://hj4cqztk-19006.inc1.devtunnels.ms",
         "https://hj4cqztk-8000.inc1.devtunnels.ms",
         "https://syncrogo-backend.onrender.com",
     ],
-    # SECURITY: no wildcard origin regex — the allowlist above is authoritative.
-    # A regex like r"^https?://.*$" would silently allow ANY origin with credentials.
+    allow_origin_regex=r"^https://[a-zA-Z0-9-]+\.(?:[a-zA-Z0-9-]+\.)?devtunnels\.ms$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -209,6 +238,7 @@ app.include_router(bookings.router)
 app.include_router(cash_fees.router)
 app.include_router(privacy.router)
 app.include_router(drivers.router)
+app.include_router(analytics.router)
 
 
 # ---------------------------------------------------------

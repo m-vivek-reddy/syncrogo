@@ -18,7 +18,7 @@ function NavigationGuard() {
     const insideAdmin = firstSegment === "(admin)";
 
     const currentUser = storeUser || authUser;
-    const hasToken = !!token || isAuthenticated;
+    const hasToken = !!token && isAuthenticated;
 
     const isAdmin = ["admin", "administrator"].includes(
       currentUser?.role?.toLowerCase() ?? ""

@@ -966,30 +966,12 @@ export default function HomeMap() {
 
       var primaryTiles =
         L.tileLayer(
-          "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
+          "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
           {
             maxZoom: 19,
-            subdomains: "abcd"
+            subdomains: "abc"
           }
         );
-
-      primaryTiles.on(
-        "tileerror",
-        function() {
-          if (
-            !map._hasOsmFallback
-          ) {
-            map._hasOsmFallback = true;
-
-            L.tileLayer(
-              "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-              {
-                maxZoom: 19
-              }
-            ).addTo(map);
-          }
-        }
-      );
 
       primaryTiles.addTo(map);
 
@@ -1209,7 +1191,7 @@ export default function HomeMap() {
     () => ({
       html: mapHtml,
       baseUrl:
-        "https://basemaps.cartocdn.com",
+        "https://tile.openstreetmap.org",
     }),
     [mapHtml]
   );

@@ -10,9 +10,11 @@ import {
   storageSet,
   storageDelete,
   TOKEN_KEY,
+  USER_KEY,
   useAuthStore,
   AuthUser,
 } from "../store/auth";
+import { clearHistory } from "../store/navigationHistory";
 import { API_BASE_URL } from "../api/client";
 
 export { TOKEN_KEY };
@@ -84,6 +86,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     void restoreSession();
+
+    // Keep AuthContext in sync if useAuthStore logs out anywhere in the app
+    const unsub = useAuthStore.subscribe((state) => {
+      if (!state.token) {
+        setToken(null);
+        setUser(null);
+      }
+    });
+    return unsub;
   }, []);
 
   async function login(email: string, password: string) {
@@ -284,14 +295,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   async function logout() {
     try {
       await storageDelete(TOKEN_KEY);
+      await storageDelete(USER_KEY);
       setToken(null);
       setUser(null);
       await useAuthStore.getState().logout();
+      clearHistory();
 
       // Always send the user to Login after sign out
       router.replace("/(auth)/login");
     } catch (error) {
       console.error("[Auth] Logout error:", error);
+      clearHistory();
 
       // Even if storage cleanup fails, don't leave
       // the user stuck on an authenticated screen.

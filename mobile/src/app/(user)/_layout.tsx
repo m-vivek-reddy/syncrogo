@@ -1,14 +1,23 @@
-import { Tabs } from "expo-router";
+import { useEffect } from "react";
+import { Tabs, usePathname } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AppHeader from "../../components/AppHeader";
 import LoadingScreen from "../../components/LoadingScreen";
 import { Colors } from "../../constants/colors";
 import { useAuthStore } from "../../store/auth";
+import { recordRoute } from "../../store/navigationHistory";
 
 export default function UserLayout() {
   const insets = useSafeAreaInsets();
   const { token, hydrated } = useAuthStore();
+  const pathname = usePathname();
+
+  useEffect(() => {
+    if (pathname) {
+      recordRoute(pathname);
+    }
+  }, [pathname]);
 
   if (!hydrated || !token) return <LoadingScreen />;
 
@@ -16,6 +25,7 @@ export default function UserLayout() {
 
   return (
     <Tabs
+      backBehavior="history"
       screenOptions={{
         header: () => <AppHeader />,
         tabBarActiveTintColor: Colors.primary,

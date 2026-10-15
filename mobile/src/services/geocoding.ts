@@ -10,6 +10,31 @@ export type PlaceResult = {
 const NOMINATIM_URL = "https://nominatim.openstreetmap.org";
 const PHOTON_URL = "https://photon.komoot.io/api";
 
+// ------------------------------------------------------------
+// Latency: geocode cache + in-flight dedup + debounce helper
+// ------------------------------------------------------------
+// Typing "Kondapu..." fires a network request per keystroke; both Photon and
+// Nominatim rate-limit aggressively. Caching prefixes and collapsing
+// concurrent requests cuts perceived search latency dramatically on mobile
+// networks and avoids 429s.
+
+const GEO_CACHE_MAX = 100;
+const geoCache = new Map<string, PlaceResult[]>();
+const geoInflight = new Map<string, Promise<PlaceResult[]>>();
+
+const cacheKey = (q: string) => q.trim().toLowerCase();
+
+export const debounce = <A extends unknown[]>(
+  fn: (...args: A) => void,
+  waitMs: number
+) => {
+  let t: ReturnType<typeof setTimeout> | undefined;
+  return (...args: A) => {
+    if (t) clearTimeout(t);
+    t = setTimeout(() => fn(...args), waitMs);
+  };
+};
+
 export async function searchPlaces(
   query: string
 ): Promise<PlaceResult[]> {
@@ -18,6 +43,43 @@ export async function searchPlaces(
   if (trimmed.length < 2) {
     return [];
   }
+
+  const key = cacheKey(trimmed);
+
+  // Exact/prefix cache hit — instant.
+  const hit = geoCache.get(key);
+  if (hit) return hit;
+
+  // Another identical search is already in flight — ride along.
+  const running = geoInflight.get(key);
+  if (running) return running;
+
+  const task = (async () => {
+    const results = await searchPlacesUncached(trimmed);
+    if (results.length > 0) {
+      geoCache.set(key, results);
+      if (geoCache.size > GEO_CACHE_MAX) {
+        // Map preserves insertion order — drop the oldest entries.
+        const excess = geoCache.size - GEO_CACHE_MAX;
+        let i = 0;
+        for (const k of geoCache.keys()) {
+          if (i++ >= excess) break;
+          geoCache.delete(k);
+        }
+      }
+    }
+    return results;
+  })();
+
+  geoInflight.set(key, task);
+  try {
+    return await task;
+  } finally {
+    geoInflight.delete(key);
+  }
+}
+
+async function searchPlacesUncached(trimmed: string): Promise<PlaceResult[]> {
 
   // 1. Try Photon (Fast OSM Geocoder by Komoot)
   try {

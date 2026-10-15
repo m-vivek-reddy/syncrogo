@@ -122,17 +122,16 @@ export default function LoginScreen() {
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
       <ScrollView
         contentContainerStyle={styles.scroll}
         keyboardShouldPersistTaps="handled"
       >
-        <View style={styles.logoRow}>
-          <Text style={styles.logoDark}>Syncro</Text>
-          <Text style={styles.logoGreen}>Go</Text>
-        </View>
-
+        {/* Text-only brand header (no logo image) — matches web Navbar: navy "Syncro" + green "GO" */}
+        <Text style={styles.brandName}>
+          Syncro<Text style={styles.brandGo}>GO</Text>
+        </Text>
         <Text style={styles.tagline}>Travel Together. Save Together.</Text>
 
         <View style={styles.card}>
@@ -228,22 +227,16 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     padding: 20,
   },
-  logoRow: {
-    flexDirection: "row",
-    justifyContent: "center",
-    alignItems: "baseline",
-  },
-  logoDark: {
-    fontSize: 34,
+  brandName: {
+    textAlign: "center",
+    fontSize: 44,
     fontWeight: "900",
-    color: "#0F172A",
-    letterSpacing: -1.5,
+    letterSpacing: -1,
+    color: "#0B3564", // web navy-800
+    marginBottom: -10,
   },
-  logoGreen: {
-    fontSize: 34,
-    fontWeight: "900",
-    color: Colors.primary,
-    letterSpacing: -1.5,
+  brandGo: {
+    color: "#08AA68", // web green-600
   },
   tagline: {
     textAlign: "center",

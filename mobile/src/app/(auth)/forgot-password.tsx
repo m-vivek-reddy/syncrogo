@@ -15,6 +15,7 @@ import { Link, router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { Colors } from "../../constants/colors";
 import apiClient from "../../api/client";
+import BackButton from "../../components/BackButton";
 
 export default function ForgotPasswordScreen() {
   const [email, setEmail] = useState("");
@@ -78,27 +79,19 @@ export default function ForgotPasswordScreen() {
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
       <ScrollView
         contentContainerStyle={styles.scroll}
         keyboardShouldPersistTaps="handled"
       >
         {/* Back Button */}
-        <Pressable
-          onPress={() => router.back()}
-          style={styles.backBtn}
-          accessibilityLabel="Back"
-        >
-          <Ionicons name="chevron-back" size={24} color="#0F172A" />
-        </Pressable>
+        <BackButton fallbackRoute="/(auth)/login" />
 
-        {/* Brand Logo */}
-        <View style={styles.logoRow}>
-          <Text style={styles.logoDark}>Syncro</Text>
-          <Text style={styles.logoGreen}>Go</Text>
-        </View>
-
+        {/* Text-only brand header (no logo image) — matches web Navbar: navy "Syncro" + green "GO" */}
+        <Text style={styles.brandName}>
+          Syncro<Text style={styles.brandGo}>GO</Text>
+        </Text>
         <Text style={styles.tagline}>Travel Together. Save Together.</Text>
 
         <View style={styles.card}>
@@ -187,22 +180,16 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     elevation: 1,
   },
-  logoRow: {
-    flexDirection: "row",
-    justifyContent: "center",
-    alignItems: "baseline",
-  },
-  logoDark: {
-    fontSize: 34,
+  brandName: {
+    textAlign: "center",
+    fontSize: 44,
     fontWeight: "900",
-    color: "#0F172A",
-    letterSpacing: -1.5,
+    letterSpacing: -1,
+    color: "#0B3564", // web navy-800
+    marginBottom: -10,
   },
-  logoGreen: {
-    fontSize: 34,
-    fontWeight: "900",
-    color: Colors.primary,
-    letterSpacing: -1.5,
+  brandGo: {
+    color: "#08AA68", // web green-600
   },
   tagline: {
     textAlign: "center",

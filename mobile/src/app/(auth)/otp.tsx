@@ -14,6 +14,7 @@ import { useAuth } from "../../auth/AuthContext";
 import { useAuthStore } from "../../store/auth";
 import { Colors } from "../../constants/colors";
 import apiClient from "../../api/client";
+import BackButton from "../../components/BackButton";
 
 export default function OtpScreen() {
   const params = useLocalSearchParams<{ email?: string }>();
@@ -127,9 +128,7 @@ export default function OtpScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backButton}>
-          <Text style={styles.backText}>â€¹</Text>
-        </Pressable>
+        <BackButton fallbackRoute="/(auth)/login" />
       </View>
 
       <View style={styles.content}>

@@ -4,6 +4,7 @@ import { router, useFocusEffect } from "expo-router";
 import api from "../../api/client";
 import { Colors } from "../../constants/colors";
 import { CONSENT_PURPOSES, POLICY_VERSION, type ConsentPurposeKey } from "../../legal/legalContent";
+import BackButton from "../../components/BackButton";
 
 type ConsentValues = Record<ConsentPurposeKey, boolean>;
 
@@ -46,9 +47,7 @@ export default function ConsentSettingsScreen() {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.header}>
-        <Pressable onPress={() => router.replace("/(user)/settings")} style={styles.backButton}>
-          <Text style={styles.backText}>Back</Text>
-        </Pressable>
+        <BackButton fallbackRoute="/(user)/settings" style={{ marginRight: 12 }} />
         <Text style={styles.title}>Privacy & Consent</Text>
       </View>
       <Text style={styles.version}>Current policy version {POLICY_VERSION}</Text>

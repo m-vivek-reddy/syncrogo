@@ -1,23 +1,35 @@
 {
   "cli": {
     "version": ">= 22.6.0",
-    "appVersionSource": "remote"
+    "appVersionSource": "local"
   },
   "build": {
     "development": {
       "developmentClient": true,
-      "distribution": "internal"
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://syncrogo-backend.onrender.com",
+        "EXPO_PUBLIC_WS_URL": "wss://syncrogo-backend.onrender.com"
+      }
     },
     "preview": {
       "distribution": "internal",
       "android": {
         "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://syncrogo-backend.onrender.com",
+        "EXPO_PUBLIC_WS_URL": "wss://syncrogo-backend.onrender.com"
       }
     },
     "production": {
       "autoIncrement": true,
       "android": {
         "buildType": "app-bundle"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://syncrogo-backend.onrender.com",
+        "EXPO_PUBLIC_WS_URL": "wss://syncrogo-backend.onrender.com"
       }
     }
   },

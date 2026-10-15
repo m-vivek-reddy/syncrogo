@@ -15,6 +15,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import api from "../../api/client";
 import { Colors } from "../../constants/colors";
 import { useAuthStore } from "../../store/auth";
+import BackButton from "../../components/BackButton";
 
 type MessageItem = {
   id: number | string;
@@ -162,9 +163,7 @@ export default function MessageScreen() {
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
-          <Pressable onPress={() => router.back()} style={styles.backBtn}>
-            <Text style={styles.backText}>‹</Text>
-          </Pressable>
+          <BackButton fallbackRoute="/(user)/messages" style={{ marginRight: 8 }} />
           <View style={styles.avatar}>
             <Text style={styles.avatarText}>
               {chatPartnerName.charAt(0).toUpperCase()}

@@ -327,12 +327,69 @@ def update_ride_price(
 # RIDE SEARCH SERIALIZATION (driver live location + ETA)
 # ============================================================
 
-def serialize_ride_offer(db: Session, ride: Ride, passenger_lat: float, passenger_lon: float) -> dict:
-    """Serialize a published ride offer for the passenger search results,
-    including the driver's live location and distance/ETA from the passenger."""
+def _serialize_offers_batched(
+    db: Session,
+    rides: list[Ride],
+    passenger_lat: float,
+    passenger_lon: float,
+) -> list[dict]:
+    """Serialize many ride offers with ONE driver lookup instead of N.
+
+    The per-ride path (serialize_ride_offer) queries the driver and commits
+    fare recalculation for every single ride — on a search returning 20
+    offers that was 20 extra SELECTs plus 20 commits per keystroke of
+    passenger search. Batched: one SELECT ... WHERE id IN (...), one commit
+    total. Results are returned in the same order as `rides`.
+    """
     from app.services.matching_service import calculate_distance
 
-    driver = db.query(User).filter(User.id == ride.driver_id).first()
+    if not rides:
+        return []
+
+    driver_ids = {r.driver_id for r in rides if r.driver_id is not None}
+    drivers: dict[int, User] = {}
+    if driver_ids:
+        driver_rows = db.query(User).filter(User.id.in_(driver_ids)).all()
+        drivers = {d.id: d for d in driver_rows}
+
+    # Fare recalculation once for the whole batch, not per ride.
+    for ride in rides:
+        try:
+            recalculate_ride_distance_and_fare(db, ride)
+        except Exception:
+            db.rollback()
+            break
+    try:
+        db.commit()
+        for ride in rides:
+            db.refresh(ride)
+    except Exception:
+        db.rollback()
+
+    return [
+        serialize_ride_offer(db, ride, passenger_lat, passenger_lon, _driver=drivers.get(ride.driver_id), _skip_commit=True)
+        for ride in rides
+    ]
+
+
+def serialize_ride_offer(
+    db: Session,
+    ride: Ride,
+    passenger_lat: float,
+    passenger_lon: float,
+    _driver: User | None = None,
+    _skip_commit: bool = False,
+) -> dict:
+    """Serialize a published ride offer for the passenger search results,
+    including the driver's live location and distance/ETA from the passenger.
+
+    `_driver` / `_skip_commit` let the batched caller inject a pre-fetched
+    driver row and suppress the per-ride commit; solo callers omit them and
+    get the original behavior.
+    """
+    from app.services.matching_service import calculate_distance
+
+    driver = _driver if _driver is not None else db.query(User).filter(User.id == ride.driver_id).first()
 
     distance_km = calculate_distance(
         passenger_lat, passenger_lon, ride.pickup_lat, ride.pickup_lon
@@ -349,12 +406,13 @@ def serialize_ride_offer(db: Session, ride: Ride, passenger_lat: float, passenge
 
     # Keep search results honest: refresh the shrinking distance/fare so a
     # passenger searching mid-journey sees the current figure.
-    try:
-        recalculate_ride_distance_and_fare(db, ride)
-        db.commit()
-        db.refresh(ride)
-    except Exception:
-        db.rollback()
+    if not _skip_commit:
+        try:
+            recalculate_ride_distance_and_fare(db, ride)
+            db.commit()
+            db.refresh(ride)
+        except Exception:
+            db.rollback()
 
     remaining_km = float(ride.distance_km or 0.0)
     current_fare = float(ride.final_fare or ride.price_per_seat or 0.0)
@@ -472,7 +530,7 @@ def search_rides(
             )
         )
 
-        serialized = [serialize_ride_offer(db, ride, pickup_lat, pickup_lon) for ride in nearby_rides]
+        serialized = _serialize_offers_batched(db, nearby_rides, pickup_lat, pickup_lon)
 
         return {
             "success": True,

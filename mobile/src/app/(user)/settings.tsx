@@ -13,6 +13,7 @@ import {
 import { useEffect, useState } from "react";
 import { router } from "expo-router";
 import { Colors } from "../../constants/colors";
+import BackButton from "../../components/BackButton";
 import { useAuth } from "../../auth/AuthContext";
 import { useAuthStore } from "../../store/auth";
 import apiClient from "../../api/client";
@@ -93,9 +94,7 @@ export default function SettingsScreen() {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.header}>
-        <Pressable onPress={() => router.replace("/(user)/profile")} style={styles.backBtn}>
-          <Text style={styles.backText}>‹</Text>
-        </Pressable>
+        <BackButton fallbackRoute="/(user)/profile" style={{ marginRight: 12 }} />
         <Text style={styles.headerTitle}>App Settings</Text>
       </View>
 

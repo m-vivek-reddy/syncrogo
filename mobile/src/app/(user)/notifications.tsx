@@ -11,6 +11,7 @@ import { router, useFocusEffect } from "expo-router";
 import { Colors } from "../../constants/colors";
 import api from "../../api/client";
 import { useAuthStore } from "../../store/auth";
+import BackButton from "../../components/BackButton";
 
 type NotificationItem = {
   id: number;
@@ -60,9 +61,7 @@ export default function NotificationsScreen() {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.header}>
-        <Pressable onPress={() => router.replace("/(user)/profile")} style={styles.backBtn}>
-          <Text style={styles.backText}>‹</Text>
-        </Pressable>
+        <BackButton fallbackRoute="/(user)/home" style={{ marginRight: 12 }} />
         <Text style={styles.headerTitle}>Notifications</Text>
       </View>
 

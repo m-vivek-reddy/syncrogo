@@ -12,6 +12,7 @@ import { router } from "expo-router";
 import api from "../../api/client";
 import { Colors } from "../../constants/colors";
 import { useAuthStore } from "../../store/auth";
+import BackButton from "../../components/BackButton";
 
 export default function AccountDetails() {
   const { user, setUser } = useAuthStore();
@@ -42,9 +43,7 @@ export default function AccountDetails() {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.header}>
-        <Pressable onPress={() => router.replace("/(user)/profile")} style={styles.backBtn}>
-          <Text style={styles.backText}>‹</Text>
-        </Pressable>
+        <BackButton fallbackRoute="/(user)/profile" style={{ marginRight: 12 }} />
         <Text style={styles.headerTitle}>Account Details</Text>
       </View>
 

@@ -3,6 +3,7 @@ import { ActivityIndicator, Alert, Pressable, ScrollView, Share, StyleSheet, Tex
 import { router, useFocusEffect } from "expo-router";
 import api from "../../api/client";
 import { Colors } from "../../constants/colors";
+import BackButton from "../../components/BackButton";
 
 type PrivacyRequestItem = {
   id: number;
@@ -72,9 +73,7 @@ export default function PrivacyRequestsScreen() {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.header}>
-        <Pressable onPress={() => router.replace("/(user)/settings")} style={styles.backButton}>
-          <Text style={styles.backText}>Back</Text>
-        </Pressable>
+        <BackButton fallbackRoute="/(user)/settings" style={{ marginRight: 12 }} />
         <Text style={styles.title}>Privacy Requests</Text>
       </View>
       <Text style={styles.note}>A submitted request remains open until it is reviewed and fulfilled.</Text>

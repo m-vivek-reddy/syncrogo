@@ -9,6 +9,7 @@ import { useCallback, useState } from "react";
 import { router, useFocusEffect } from "expo-router";
 import api from "../../api/client";
 import { Colors } from "../../constants/colors";
+import BackButton from "../../components/BackButton";
 
 type Conversation = {
   rideId: number;
@@ -50,10 +51,13 @@ export default function Messages() {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Messages</Text>
-        <Text style={styles.headerSubtitle}>
-          Chat with drivers and passengers
-        </Text>
+        <BackButton fallbackRoute="/(user)/home" style={{ marginRight: 12 }} />
+        <View style={{ flex: 1 }}>
+          <Text style={styles.headerTitle}>Messages</Text>
+          <Text style={styles.headerSubtitle}>
+            Chat with drivers and passengers
+          </Text>
+        </View>
       </View>
 
       {items.map((item) => (
@@ -109,7 +113,7 @@ export default function Messages() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#F8FAFC" },
   content: { padding: 16, paddingBottom: 40 },
-  header: { marginBottom: 16, marginTop: 4 },
+  header: { flexDirection: "row", alignItems: "center", marginBottom: 16, marginTop: 4 },
   headerTitle: { fontSize: 24, fontWeight: "900", color: Colors.text },
   headerSubtitle: { fontSize: 13, color: Colors.textSecondary, marginTop: 2 },
   chatCard: {

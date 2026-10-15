@@ -123,7 +123,7 @@ function useRouteCalculator(
 
 const LEAFLET_HTML_HEAD = `<!DOCTYPE html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no"/><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><style>html,body,#map{width:100%;height:100%;margin:0;padding:0;background:#e2e8f0;}#map{touch-action:none;}.sg-pin{border-radius:50%;border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4);}.sg-pickup{background:#2563EB;}.sg-dest{background:#16A34A;}</style></head><body><div id="map"></div><script>
 var map = L.map('map', { zoomControl: false, attributionControl: false }).setView([17.4435, 78.3772], 13);
-L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { maxZoom: 19, subdomains: 'abcd' }).addTo(map);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,subdomains:'abc'}).addTo(map);
 var pickupMarker = null, destMarker = null, routeLine = null;
 function pinIcon(cls) { return L.divIcon({ className: '', html: '<div class="sg-pin ' + cls + '" style="width:22px;height:22px;"></div>', iconSize: [22, 22], iconAnchor: [11, 11] }); }
 function renderMap(pickup, destination, route, fit) {

@@ -3,6 +3,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-nati
 import { router, useLocalSearchParams } from "expo-router";
 import { WebView } from "react-native-webview";
 import { Colors } from "../../constants/colors";
+import BackButton from "../../components/BackButton";
 
 const DOCUMENTS = {
   terms: { title: "Terms & Conditions", path: "/terms" },
@@ -23,9 +24,7 @@ export default function LegalDocumentScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backButton}>
-          <Text style={styles.backText}>Back</Text>
-        </Pressable>
+        <BackButton fallbackRoute="/(user)/settings" style={{ marginRight: 12 }} />
         <Text style={styles.title}>{page?.title || "Legal information"}</Text>
       </View>
       {!uri ? (
