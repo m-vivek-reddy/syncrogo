@@ -158,8 +158,17 @@ app = FastAPI(
 UPLOAD_DIR = Path(__file__).resolve().parents[1] / "uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
 
-# The uploads directory is kept private: document files are served only through
-# a signed-in API route after owner authorization checks.
+# Profile photos are public-by-design (any user can see another user's avatar),
+# so they are served straight from disk. Document files stay private and are
+# only served through the signed-in /api/v1/documents/{id}/file route, which
+# runs owner authorization checks — they are NOT exposed here.
+from fastapi.staticfiles import StaticFiles
+
+app.mount(
+    "/uploads/profile_photos",
+    StaticFiles(directory=str(UPLOAD_DIR / "profile_photos")),
+    name="profile_photos",
+)
 
 # ---------------------------------------------------------
 # Security & Rate Limiting Middleware
