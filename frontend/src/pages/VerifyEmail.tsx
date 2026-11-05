@@ -20,7 +20,7 @@ export default function VerifyEmail() {
 
     const verify = async () => {
       try {
-        const res = await apiClient.get(`/api/v1/users/verify-email?token=${token}`);
+        await apiClient.get(`/api/v1/users/verify-email?token=${token}`);
         setStatus('success');
 
         setTimeout(() => navigate('/login', { replace: true }), 1500);
