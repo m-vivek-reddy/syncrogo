@@ -1,23 +1,22 @@
 import {
   ResponsiveContainer,
-  LineChart,
-  Line,
+  AreaChart,
+  Area,
   CartesianGrid,
   XAxis,
   YAxis,
   Tooltip,
 } from "recharts";
 
-const data = [
-  { month: "Jan", revenue: 1200 },
-  { month: "Feb", revenue: 2100 },
-  { month: "Mar", revenue: 1800 },
-  { month: "Apr", revenue: 3200 },
-  { month: "May", revenue: 4500 },
-  { month: "Jun", revenue: 5100 },
-];
+interface Props {
+  data?: { month: string; revenue: number }[];
+}
 
-export default function RevenueChart() {
+const FALLBACK = [{ month: "—", revenue: 0 }];
+
+export default function RevenueChart({ data }: Props) {
+  const series = Array.isArray(data) && data.length > 0 ? data : FALLBACK;
+
   return (
     <div className="bg-white rounded-2xl shadow-lg p-6">
 
@@ -27,24 +26,45 @@ export default function RevenueChart() {
 
       <ResponsiveContainer width="100%" height={300}>
 
-        <LineChart data={data}>
+        <AreaChart data={series} margin={{ top: 5, right: 10, bottom: 0, left: 0 }}>
 
-          <CartesianGrid strokeDasharray="3 3" />
+          <defs>
+            <linearGradient id="revenueFill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#2563eb" stopOpacity={0.35} />
+              <stop offset="100%" stopColor="#2563eb" stopOpacity={0.02} />
+            </linearGradient>
+          </defs>
 
-          <XAxis dataKey="month" />
+          <CartesianGrid strokeDasharray="3 3" vertical={false} />
 
-          <YAxis />
+          <XAxis dataKey="month" tickLine={false} axisLine={false} />
 
-          <Tooltip />
+          <YAxis
+            tickLine={false}
+            axisLine={false}
+            width={70}
+            tickFormatter={(v: number) =>
+              v >= 1000 ? `₹${(v / 1000).toFixed(1)}k` : `₹${v}`
+            }
+          />
 
-          <Line
+          <Tooltip
+            formatter={((value: unknown) => [
+              `₹${Number(value ?? 0).toLocaleString()}`,
+              "Revenue",
+            ]) as any}
+          />
+
+          <Area
             type="monotone"
             dataKey="revenue"
             stroke="#2563eb"
             strokeWidth={3}
+            fill="url(#revenueFill)"
+            animationDuration={900}
           />
 
-        </LineChart>
+        </AreaChart>
 
       </ResponsiveContainer>
 

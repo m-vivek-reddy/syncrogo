@@ -98,7 +98,7 @@ export default function Documents() {
 
           <DocumentCard
             title="Vehicle Insurance"
-            subtitle="Upload insurance copy"
+            subtitle="Optional — upload insurance copy"
             status={(insuranceDoc?.status as any) || "missing"}
             uploadedAt={insuranceDoc?.uploadedAt}
           />

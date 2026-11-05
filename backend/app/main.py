@@ -52,6 +52,8 @@ from app.models.sos import SOSAlert
 from app.models.emergency_contact import EmergencyContact
 from app.models.consent import ConsentRecord
 from app.models.privacy_request import PrivacyRequest
+from app.models.community_post import CommunityPost
+from app.models.community_group import CommunityGroup, CommunityGroupMembership
 
 # ---------------------------------------------------------
 # Import application routes
@@ -76,6 +78,8 @@ from app.routes import cash_fees
 from app.routes import privacy
 from app.routes import drivers
 from app.routes import analytics
+from app.routes import community as community_routes
+from app.routes import public_stats
 
 # API routers
 from app.api import pricing
@@ -248,6 +252,8 @@ app.include_router(cash_fees.router)
 app.include_router(privacy.router)
 app.include_router(drivers.router)
 app.include_router(analytics.router)
+app.include_router(community_routes.router)
+app.include_router(public_stats.router)
 
 
 # ---------------------------------------------------------

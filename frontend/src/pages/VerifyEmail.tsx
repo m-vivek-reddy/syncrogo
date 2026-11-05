@@ -1,8 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams, useNavigate, Link } from 'react-router-dom';
 import { apiClient } from '../api/client';
-import { primeCurrentUser } from '../api/currentUser';
-import { useAppStore } from '../store/useAppStore';
 import { CheckCircle, XCircle, Loader } from 'lucide-react';
 
 export default function VerifyEmail() {
@@ -25,31 +23,7 @@ export default function VerifyEmail() {
         const res = await apiClient.get(`/api/v1/users/verify-email?token=${token}`);
         setStatus('success');
 
-        const { access_token, user: profile } = res.data || {};
-        if (access_token) {
-          localStorage.setItem("syncrogo_token", access_token);
-          localStorage.setItem("token", access_token);
-          if (profile) {
-            primeCurrentUser(access_token, profile);
-            useAppStore.getState().login({
-              id: String(profile.id),
-              name: profile.name || profile.full_name || profile.email,
-              email: profile.email,
-              rating: profile.rating ?? 0,
-              role: profile.role,
-              profile_photo_url: profile.profile_photo_url,
-            });
-          }
-          const role = profile?.role?.toLowerCase();
-          const isAdminOrEmployer = role === "admin" || role === "employer";
-          setTimeout(() => {
-            navigate(isAdminOrEmployer ? '/admin' : '/home', { replace: true });
-          }, 1000);
-        } else {
-          setTimeout(() => {
-            navigate('/home', { replace: true });
-          }, 1000);
-        }
+        setTimeout(() => navigate('/login', { replace: true }), 1500);
       } catch (error: any) {
         setStatus('error');
         setErrorMessage(error.response?.data?.detail || 'Verification failed. Link may be expired.');
@@ -75,8 +49,8 @@ export default function VerifyEmail() {
           <div className="flex flex-col items-center animate-fade-in">
             <CheckCircle size={64} className="text-green-500 mb-4" />
             <h2 className="text-2xl font-bold text-slate-800">Email Verified!</h2>
-            <p className="text-slate-500 mt-2">Your account is ready to go.</p>
-            <p className="text-sm text-slate-400 mt-4">Going to Home page...</p>
+            <p className="text-slate-500 mt-2">Log in to verify your OTP and continue.</p>
+            <p className="text-sm text-slate-400 mt-4">Taking you to login...</p>
           </div>
         )}
 

@@ -462,7 +462,8 @@ export default function RideNavigation({
       >
         <TileLayer
           attribution="&copy; OpenStreetMap contributors"
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+          maxZoom={19}
         />
 
         <NavigationController
@@ -553,6 +554,12 @@ export default function RideNavigation({
             REAL ROAD ROUTE
         ==================================================== */}
 
+        {route.length > 1 && (
+          <Polyline
+            positions={route}
+            pathOptions={{ color: "#ffffff", weight: 10, opacity: 0.95, lineCap: "round", lineJoin: "round" }}
+          />
+        )}
         {route.length > 1 && (
           <Polyline
             positions={route}

@@ -132,7 +132,12 @@ async def upload_document(
             detail="Invalid file type. Only standard images and PDFs are permitted.",
         )
 
-    contents = await file.read()
+    contents = await file.read(MAX_FILE_SIZE_BYTES + 1)
+    if not contents:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The selected document is empty.",
+        )
     if len(contents) > MAX_FILE_SIZE_BYTES:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,

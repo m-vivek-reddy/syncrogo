@@ -24,6 +24,7 @@ from app.models.payment import PaymentMethod, Payment
 from app.models.document import Document
 from app.models.consent import ConsentRecord
 from app.models.privacy_request import PrivacyRequest, PrivacyRequestEvent
+from app.models.community_group import CommunityGroup, CommunityGroupMembership
 
 load_dotenv()
 

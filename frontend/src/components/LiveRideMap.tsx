@@ -105,7 +105,7 @@ export default function LiveRideMap({ pickupLat, pickupLon, dropoffLat, dropoffL
 
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
           maxZoom={19}
         />
 
@@ -125,6 +125,12 @@ export default function LiveRideMap({ pickupLat, pickupLon, dropoffLat, dropoffL
           </Marker>
         )}
 
+        {pickupCoord && dropoffCoord && (
+          <Polyline
+            positions={[pickupCoord, dropoffCoord]}
+            pathOptions={{ color: '#ffffff', weight: 8, opacity: 0.95, lineCap: 'round', lineJoin: 'round' }}
+          />
+        )}
         {pickupCoord && dropoffCoord && (
           <Polyline
             positions={[pickupCoord, dropoffCoord]}

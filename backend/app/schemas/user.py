@@ -1,6 +1,8 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, field_validator
 from typing import Optional
 from datetime import datetime
+
+from app.utils.security import MAX_PASSWORD_BYTES
 
 
 # ==========================
@@ -24,6 +26,15 @@ class UserCreate(BaseModel):
     consent_documents: bool = False
     consent_sms: bool = False
     consent_policy_version: Optional[str] = None
+
+    @field_validator("password")
+    @classmethod
+    def password_within_bcrypt_limit(cls, password: str) -> str:
+        if len(password.encode("utf-8")) > MAX_PASSWORD_BYTES:
+            raise ValueError(
+                f"Password must be at most {MAX_PASSWORD_BYTES} UTF-8 bytes"
+            )
+        return password
 
 
 # ==========================

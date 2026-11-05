@@ -4,13 +4,14 @@ import {
   Cell,
   Tooltip,
   ResponsiveContainer,
+  Legend,
 } from "recharts";
 
-const data = [
-  { name: "Completed", value: 70 },
-  { name: "Cancelled", value: 20 },
-  { name: "Ongoing", value: 10 },
-];
+interface Props {
+  completed?: number;
+  cancelled?: number;
+  ongoing?: number;
+}
 
 const colors = [
   "#22c55e",
@@ -18,7 +19,19 @@ const colors = [
   "#3b82f6",
 ];
 
-export default function RideChart() {
+export default function RideChart({
+  completed = 0,
+  cancelled = 0,
+  ongoing = 0,
+}: Props) {
+
+  const data = [
+    { name: "Completed", value: completed },
+    { name: "Cancelled", value: cancelled },
+    { name: "Ongoing", value: ongoing },
+  ].filter((slice) => slice.value > 0);
+
+  const empty = data.length === 0;
 
   return (
 
@@ -28,32 +41,44 @@ export default function RideChart() {
         Ride Status
       </h2>
 
-      <ResponsiveContainer width="100%" height={300}>
+      {empty ? (
+        <div className="h-[300px] flex items-center justify-center text-slate-400 text-sm">
+          No ride data yet
+        </div>
+      ) : (
+        <ResponsiveContainer width="100%" height={300}>
 
-        <PieChart>
+          <PieChart>
 
-          <Pie
-            data={data}
-            dataKey="value"
-            outerRadius={100}
-          >
+            <Pie
+              data={data}
+              dataKey="value"
+              nameKey="name"
+              outerRadius={100}
+              innerRadius={55}
+              paddingAngle={3}
+              animationDuration={900}
+            >
 
-            {data.map((_, index) => (
+              {data.map((_, index) => (
 
-              <Cell
-                key={index}
-                fill={colors[index]}
-              />
+                <Cell
+                  key={index}
+                  fill={colors[index % colors.length]}
+                />
 
-            ))}
+              ))}
 
-          </Pie>
+            </Pie>
 
-          <Tooltip />
+            <Tooltip />
 
-        </PieChart>
+            <Legend iconType="circle" />
 
-      </ResponsiveContainer>
+          </PieChart>
+
+        </ResponsiveContainer>
+      )}
 
     </div>
 

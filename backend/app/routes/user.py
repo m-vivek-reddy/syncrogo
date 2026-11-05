@@ -49,6 +49,7 @@ from app.services.account_deletion import process_account_deletion
 from app.schemas.rating import RatingSummaryResponse
 
 from app.utils.security import (
+    MAX_PASSWORD_BYTES,
     hash_password,
     verify_password,
 )
@@ -149,6 +150,11 @@ def validate_new_password(password: str) -> None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Password must be at least 8 characters long",
+        )
+    if len(password.encode("utf-8")) > MAX_PASSWORD_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Password must be at most {MAX_PASSWORD_BYTES} UTF-8 bytes",
         )
 
 

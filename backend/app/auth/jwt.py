@@ -8,7 +8,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Read variables from .env
-SECRET_KEY = os.getenv("SECRET_KEY") or "syncrogo-secret-key-production-change-in-env-32chars"
+SECRET_KEY = os.getenv("SECRET_KEY", "")
+if len(SECRET_KEY.encode("utf-8")) < 32:
+    raise RuntimeError("SECRET_KEY must be configured with at least 32 bytes")
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 43200))
 

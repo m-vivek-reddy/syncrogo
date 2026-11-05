@@ -15,7 +15,8 @@ GLOBAL_WINDOW_SECONDS = 60
 GLOBAL_MAX_REQUESTS = 180  # 180 req/min general
 
 AUTH_WINDOW_SECONDS = 60
-AUTH_MAX_REQUESTS = 25  # 25 req/min for auth endpoints
+AUTH_MAX_REQUESTS = 25  # Other auth endpoints, per minute
+LOGIN_MAX_REQUESTS = 5  # Login attempts, per minute
 
 AUTH_PATHS = (
     "/login",
@@ -64,7 +65,6 @@ class RateLimitAndBotProtectionMiddleware(BaseHTTPMiddleware):
     """Protects login, registration, and OTP endpoints from brute-force & credential stuffing."""
 
     async def dispatch(self, request: Request, call_next) -> Response:
-        # Get client IP (support X-Forwarded-For if behind reverse proxy)
         client_ip = self._client_ip(request)
 
         now = time.time()
@@ -73,17 +73,18 @@ class RateLimitAndBotProtectionMiddleware(BaseHTTPMiddleware):
         _prune_rate_limit_stores(now)
 
         # Check Auth Rate Limit
-        if any(path.startswith(auth_path.rstrip("/")) for auth_path in AUTH_PATHS):
+        if request.method == "POST" and path in AUTH_PATHS:
             key = f"auth:{client_ip}"
             timestamps = _AUTH_RATE_LIMIT_STORE[key]
-            # Prune old timestamps
             _AUTH_RATE_LIMIT_STORE[key] = [
                 t for t in timestamps if now - t < AUTH_WINDOW_SECONDS
             ]
-            if len(_AUTH_RATE_LIMIT_STORE[key]) >= AUTH_MAX_REQUESTS:
-                # Track repeated offenders so brute-force machines get a
-                # progressively longer cool-down instead of retrying
-                # freely every 60 seconds.
+            limit = (
+                LOGIN_MAX_REQUESTS
+                if path in ("/login", "/api/v1/users/login")
+                else AUTH_MAX_REQUESTS
+            )
+            if len(_AUTH_RATE_LIMIT_STORE[key]) >= limit:
                 _AUTH_OFFENSE_TRACKER[key] = _AUTH_OFFENSE_TRACKER.get(key, 0) + 1
                 offenses = _AUTH_OFFENSE_TRACKER[key]
                 penalty = min(15 * 60, 60 * (2 ** (offenses - 1)))  # 60s, 120s, 240s ... cap 15min

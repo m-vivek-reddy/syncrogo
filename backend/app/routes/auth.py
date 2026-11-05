@@ -1,3 +1,4 @@
+import hmac
 import os
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
@@ -8,7 +9,7 @@ from typing import List, Optional
 
 from app.db.session import get_db
 from app.models.user import User
-from app.utils.security import verify_password
+from app.utils.security import hash_password, verify_password
 from app.auth.jwt import create_access_token, SECRET_KEY, ALGORITHM
 
 router = APIRouter(tags=["Authentication"])
@@ -114,8 +115,16 @@ async def login(
     # Find the user by email (case-insensitive and trimmed)
     user = db.query(User).filter(func.lower(User.email) == email_clean).first()
 
-    # Verify user exists and password matches
-    if not user or not verify_password(password, user.password):
+    # Upgrade legacy plaintext credentials after a successful login.
+    stored_password = user.password if user else ""
+    password_matches = bool(user and verify_password(password, stored_password))
+    if user and not password_matches and not stored_password.startswith(("$2a$", "$2b$", "$2y$", "bcrypt-sha256$")):
+        password_matches = len(password.encode("utf-8")) <= 72 and hmac.compare_digest(password.encode("utf-8"), stored_password.encode("utf-8"))
+        if password_matches:
+            user.password = hash_password(password)
+            db.commit()
+
+    if not password_matches:
         _record_failed_login(email_clean)
         remaining_after, _ = _account_lockout_state(email_clean)
         if remaining_after == 0:

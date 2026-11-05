@@ -1,10 +1,35 @@
 import { motion } from "framer-motion";
+import { useEffect, useState } from "react";
 
 interface Props {
   title: string;
   value: any;
   icon: React.ReactNode;
   color: string;
+  subtitle?: string;
+  index?: number;
+}
+
+/** Animated count-up for numeric values. */
+function useCountUp(target: number, duration = 900) {
+  const [display, setDisplay] = useState(0);
+
+  useEffect(() => {
+    if (!Number.isFinite(target)) return;
+    let raf = 0;
+    const start = performance.now();
+    const tick = (now: number) => {
+      const progress = Math.min((now - start) / duration, 1);
+      // ease-out cubic
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setDisplay(target * eased);
+      if (progress < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [target, duration]);
+
+  return display;
 }
 
 export default function StatCard({
@@ -12,9 +37,18 @@ export default function StatCard({
   value,
   icon,
   color,
+  subtitle,
+  index = 0,
 }: Props) {
+  const numeric = typeof value === "number" ? value : null;
+  const animated = useCountUp(numeric ?? 0);
+  const shown = numeric !== null ? Number(animated.toFixed(2)) : value;
+
   return (
     <motion.div
+      initial={{ opacity: 0, y: 24 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.45, delay: index * 0.07, ease: "easeOut" }}
       whileHover={{ scale: 1.03 }}
       className="
         bg-white
@@ -44,8 +78,9 @@ export default function StatCard({
             font-bold
             mt-4
             text-gray-900
+            tabular-nums
           ">
-            {value}
+            {shown}
           </h2>
 
 
@@ -54,7 +89,7 @@ export default function StatCard({
             text-gray-500
             mt-2
           ">
-            Updated recently
+            {subtitle ?? "Live"}
           </p>
 
         </div>

@@ -1,12 +1,22 @@
 import { useState } from "react";
-import { UploadCloud, File, CheckCircle2 } from "lucide-react";
+import { UploadCloud, File, CheckCircle2, CircleAlert } from "lucide-react";
 import { apiClient } from "../../api/client";
+
+const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
+const ALLOWED_FILE_TYPES: Record<string, string> = {
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  webp: "image/webp",
+  pdf: "application/pdf",
+};
 
 export default function UploadDocument() {
   const [documentType, setDocumentType] = useState("Aadhaar Card");
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState("");
+  const [uploadFailed, setUploadFailed] = useState(false);
 
   const handleUpload = async (
     e: React.FormEvent<HTMLFormElement>
@@ -17,6 +27,7 @@ export default function UploadDocument() {
 
     setUploading(true);
     setMessage("");
+    setUploadFailed(false);
 
     const formData = new FormData();
     formData.append("document_type", documentType);
@@ -25,19 +36,15 @@ export default function UploadDocument() {
     try {
       await apiClient.post(
         "/api/v1/documents/",
-        formData,
-        {
-          headers: {
-            "Content-Type": "multipart/form-data",
-          },
-        }
+        formData
       );
 
       setMessage("Document uploaded successfully.");
 
       setFile(null);
-    } catch {
-      setMessage("Upload failed.");
+    } catch (error: any) {
+      setUploadFailed(true);
+      setMessage(error.response?.data?.detail || "Upload failed. Please try again.");
     } finally {
       setUploading(false);
     }
@@ -55,8 +62,8 @@ export default function UploadDocument() {
       </p>
 
       {message && (
-        <div className="mt-5 rounded-xl bg-green-50 border border-green-200 p-3 flex items-center gap-2 text-green-700">
-          <CheckCircle2 size={18} />
+        <div role={uploadFailed ? "alert" : "status"} className={`mt-5 rounded-xl border p-3 flex items-center gap-2 ${uploadFailed ? "bg-red-50 border-red-200 text-red-700" : "bg-green-50 border-green-200 text-green-700"}`}>
+          {uploadFailed ? <CircleAlert size={18} /> : <CheckCircle2 size={18} />}
           {message}
         </div>
       )}
@@ -105,20 +112,39 @@ export default function UploadDocument() {
             </p>
 
             <p className="text-xs text-slate-500 mt-1">
-              JPG, PNG or PDF (Max 10MB)
+              JPG, PNG, WEBP or PDF (Max 10MB)
             </p>
 
             <input
               type="file"
-              accept="image/*,.pdf"
+              accept=".jpg,.jpeg,.png,.webp,.pdf"
               hidden
-              onChange={(e) =>
-                setFile(
-                  e.target.files
-                    ? e.target.files[0]
-                    : null
-                )
-              }
+              onChange={(e) => {
+                const selected = e.target.files?.[0] || null;
+                setMessage("");
+                setUploadFailed(false);
+                if (!selected) return setFile(null);
+                const extension = selected.name.split(".").pop()?.toLowerCase() || "";
+                const expectedType = ALLOWED_FILE_TYPES[extension];
+                if (selected.size === 0) {
+                  setFile(null);
+                  setMessage("Choose a non-empty document.");
+                  setUploadFailed(true);
+                  e.target.value = "";
+                } else if (selected.size > MAX_FILE_SIZE_BYTES) {
+                  setFile(null);
+                  setMessage("Choose a document smaller than 10 MB.");
+                  setUploadFailed(true);
+                  e.target.value = "";
+                } else if (!expectedType || (selected.type && selected.type !== expectedType)) {
+                  setFile(null);
+                  setMessage("Choose a JPG, PNG, WEBP, or PDF file.");
+                  setUploadFailed(true);
+                  e.target.value = "";
+                } else {
+                  setFile(selected);
+                }
+              }}
             />
 
           </div>

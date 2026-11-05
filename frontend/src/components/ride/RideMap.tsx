@@ -398,7 +398,8 @@ export default function RideMap({
 
       <TileLayer
         attribution='&copy; OpenStreetMap contributors'
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+        maxZoom={19}
       />
 
       <MapResizer />
@@ -501,6 +502,9 @@ export default function RideMap({
           ================================================== */}
 
       {driverRoute.length > 1 && (
+        <Polyline positions={driverRoute} pathOptions={{ color: "#ffffff", weight: 9, opacity: 0.95, lineCap: "round", lineJoin: "round" }} />
+      )}
+      {driverRoute.length > 1 && (
         <Polyline
           positions={driverRoute}
           pathOptions={{
@@ -516,6 +520,9 @@ export default function RideMap({
           PASSENGER ROUTE
           ================================================== */}
 
+      {passengerRoute.length > 1 && (
+        <Polyline positions={passengerRoute} pathOptions={{ color: "#ffffff", weight: 8, opacity: 0.95, lineCap: "round", lineJoin: "round" }} />
+      )}
       {passengerRoute.length > 1 && (
         <Polyline
           positions={passengerRoute}

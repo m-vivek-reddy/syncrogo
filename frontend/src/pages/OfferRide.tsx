@@ -797,7 +797,7 @@ export default function OfferRide() {
                 </div>
                 <div className="h-[460px]">
                   <MapContainer center={mapDestination ?? [17.385, 78.487]} zoom={mapDestination ? 15 : 11} className="h-full w-full">
-                    <TileLayer attribution="&copy; OpenStreetMap contributors" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                    <TileLayer attribution="&copy; OpenStreetMap contributors" url="https://tile.openstreetmap.org/{z}/{x}/{y}.png" maxZoom={19} />
                     <DestinationMapPicker initialPosition={mapDestination ?? [17.385, 78.487]} onSelect={selectMapDestination} />
                     {mapDestination && <CircleMarker center={mapDestination} radius={9} pathOptions={{ color: "#059669" }} />}
                   </MapContainer>

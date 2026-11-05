@@ -98,6 +98,12 @@ function MapResizer() {
   return null;
 }
 
+function MapZoomActions({ onReady }: { onReady: (zoom: (delta: number) => void) => void }) {
+  const map = useMap();
+  useEffect(() => onReady((delta) => delta > 0 ? map.zoomIn() : map.zoomOut()), [map, onReady]);
+  return null;
+}
+
 // ============================================================
 // LOCATION TRACKER & RE-CENTER CONTROLLER
 // ============================================================
@@ -286,6 +292,8 @@ export default function RideMap() {
   } = useAppStore();
 
   const [centerHandler, setCenterHandler] = useState<(() => void) | null>(null);
+  const [zoomHandler, setZoomHandler] = useState<((delta: number) => void) | null>(null);
+  const handleZoomReady = useCallback((fn: (delta: number) => void) => setZoomHandler(() => fn), []);
 
   const startPosition: Coordinate =
     destinationLocation ?? pickupLocation ?? DEFAULT_CENTER;
@@ -308,11 +316,12 @@ export default function RideMap() {
       >
         {/* Automatic resize invalidator */}
         <MapResizer />
+        <MapZoomActions onReady={handleZoomReady} />
 
         {/* Clean OpenStreetMap Tiles */}
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
           maxZoom={19}
         />
 
@@ -357,6 +366,18 @@ export default function RideMap() {
           <Polyline
             positions={route}
             pathOptions={{
+              color: "#ffffff",
+              weight: 8,
+              opacity: 0.95,
+              lineCap: "round",
+              lineJoin: "round",
+            }}
+          />
+        )}
+        {hasRoute && (
+          <Polyline
+            positions={route}
+            pathOptions={{
               color: "#2563eb",
               weight: 5,
               opacity: 0.9,
@@ -368,15 +389,22 @@ export default function RideMap() {
       </MapContainer>
 
       {/* Re-center / Locate Me Button */}
-      {centerHandler && (
-        <button
-          type="button"
-          onClick={() => centerHandler()}
-          aria-label="Center on my location"
-          className="absolute bottom-4 right-4 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-white text-slate-700 shadow-lg ring-1 ring-slate-200 transition-all hover:bg-slate-50 hover:text-blue-600 active:scale-95"
-        >
-          <Crosshair size={20} />
-        </button>
+      {(centerHandler || zoomHandler) && (
+        <>
+          <div className="absolute right-3 top-3 z-10 flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
+            <button type="button" aria-label="Zoom in" onClick={() => zoomHandler?.(1)} className="h-9 w-9 text-xl font-semibold text-blue-900 hover:bg-blue-50">+</button>
+            <div className="h-px bg-slate-200" />
+            <button type="button" aria-label="Zoom out" onClick={() => zoomHandler?.(-1)} className="h-9 w-9 text-xl font-semibold text-blue-900 hover:bg-blue-50">−</button>
+          </div>
+          {centerHandler && <button
+            type="button"
+            onClick={() => centerHandler()}
+            aria-label="Center on my location"
+            className="absolute bottom-3 right-3 z-10 flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-lg transition-all hover:bg-slate-50 hover:text-blue-600 active:scale-95"
+          >
+            <Crosshair size={20} />
+          </button>}
+        </>
       )}
     </div>
   );

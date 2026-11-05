@@ -35,6 +35,7 @@ import AdminLayout from "./layouts/AdminLayout";
 
 // Guards
 import ProtectedRoute from "./components/ProtectedRoute";
+import UserRoute from "./components/UserRoute";
 import AdminRoute from "./components/AdminRoute";
 import PageTitleTracker from "./components/PageTitleTracker";
 
@@ -103,6 +104,7 @@ function App() {
         ================================================== */}
 
         <Route element={<ProtectedRoute />}>
+          <Route element={<UserRoute />}>
           <Route element={<AppLayout />}>
 
             <Route
@@ -182,6 +184,7 @@ function App() {
               element={<HelpSupport />}
             />
 
+          </Route>
           </Route>
         </Route>
 
