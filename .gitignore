@@ -16,8 +16,9 @@ dist/
 # VS Code
 .vscode/
 
-# Stray duplicate of frontend/ (7.8k files incl. node_modules + dist)
-/frontend web/
+# Separate marketing frontend app
+*.tsbuildinfo
+/frontend web/qa-forgot.mjs
 
 # Generated diagnostics log
 mobile/doctor_log.txt
